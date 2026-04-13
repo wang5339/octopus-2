@@ -29,23 +29,18 @@
 
 ### 🐳 Docker 运行
 
-直接运行
+克隆项目并使用 docker compose 运行：
 
 ```bash
-docker run -d --name octopus -v /path/to/data:/app/data -p 8080:8080 bestrui/octopus
-```
-
-或者使用 docker compose 运行
-
-```bash
-wget https://raw.githubusercontent.com/bestruirui/octopus/refs/heads/dev/docker-compose.yml
+git clone https://github.com/wang5339/octopus-2.git
+cd octopus-2-2
 docker compose up -d
 ```
 
 
 ### 📦 从 Release 下载
 
-从 [Releases](https://github.com/bestruirui/octopus/releases) 下载对应平台的二进制文件，然后运行：
+从 [Releases](https://github.com/wang5339/octopus-2/releases) 下载对应平台的二进制文件，然后运行：
 
 ```bash
 ./octopus start
@@ -60,8 +55,8 @@ docker compose up -d
 
 ```bash
 # 克隆项目
-git clone https://github.com/bestruirui/octopus.git
-cd octopus
+git clone https://github.com/wang5339/octopus-2.git
+cd octopus-2
 # 构建前端
 cd web && pnpm install && pnpm run build && cd ..
 # 移动前端产物到 static 目录

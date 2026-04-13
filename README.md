@@ -29,23 +29,18 @@
 
 ### 🐳 Docker
 
-Run directly:
+Clone the repository and run with docker compose:
 
 ```bash
-docker run -d --name octopus -v /path/to/data:/app/data -p 8080:8080 bestrui/octopus
-```
-
-Or use docker compose:
-
-```bash
-wget https://raw.githubusercontent.com/bestruirui/octopus/refs/heads/dev/docker-compose.yml
+git clone https://github.com/wang5339/octopus-2.git
+cd octopus-2-2
 docker compose up -d
 ```
 
 
 ### 📦 Download from Release
 
-Download the binary for your platform from [Releases](https://github.com/bestruirui/octopus/releases), then run:
+Download the binary for your platform from [Releases](https://github.com/wang5339/octopus-2/releases), then run:
 
 ```bash
 ./octopus start
@@ -60,8 +55,8 @@ Download the binary for your platform from [Releases](https://github.com/bestrui
 
 ```bash
 # Clone the repository
-git clone https://github.com/bestruirui/octopus.git
-cd octopus
+git clone https://github.com/wang5339/octopus-2.git
+cd octopus-2
 # Build frontend
 cd web && pnpm install && pnpm run build && cd ..
 # Move frontend assets to static directory

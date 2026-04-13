@@ -1,9 +1,9 @@
 services:
   octopus:
-    image: bestrui/octopus
+    build: .
     ports:
        - '8080:8080'
-    volumes:      
-       - '/path/to/data:/app/data'
+    volumes:
+       - './data:/app/data'
     container_name: octopus
     restart: unless-stopped
