@@ -4,78 +4,91 @@
 
 ### Octopus
 
-**A Simple, Beautiful, and Elegant LLM API Aggregation & Load Balancing Service for Individuals**
+**A self-hosted AI API gateway for individuals and small teams, unifying multi-provider model access, protocol conversion, load balancing, model management, and usage analytics**
 
  English | [简体中文](README_zh.md)
 
 </div>
 
 
+## 🐙 Overview
+
+Octopus is a self-hosted LLM API aggregation gateway. It brings OpenAI-compatible APIs, Anthropic, Gemini, Volcengine, GitHub Copilot, Antigravity, OpenCode Zen, and other upstream providers into one management panel, while exposing APIs that follow familiar OpenAI / Anthropic usage patterns.
+
+With Octopus, you can manage channels, Base URLs, API keys, model lists, group routing, load-balancing policies, and model prices in one place. It also provides request logs, token usage, cost analytics, channel health information, and built-in API usage documentation. It is suitable for personal use, multi-model aggregation, centralized API key distribution, model routing experiments, and lightweight team gateway scenarios.
+
+
 ## ✨ Features
 
-- 🔀 **Multi-Channel Aggregation** - Connect multiple LLM provider channels with unified management
-- 🔑 **Multi-Key Support** - Support multiple API keys for a single channel
-- ⚡ **Smart Selection** - Multiple endpoints per channel, smart selection of the endpoint with the shortest delay
-- ⚖️ **Load Balancing** - Automatic request distribution for stable and efficient service
-- 🔄 **Protocol Conversion** - Seamless conversion between OpenAI Chat / OpenAI Responses / Anthropic API formats, plus OpenAI Embeddings and Image Generation support
-- 💰 **Price Sync** - Automatic model pricing updates
-- 🔃 **Model Sync** - Automatic synchronization of available model lists with channels
-- 📊 **Analytics** - Comprehensive request statistics, token consumption, and cost tracking
-- 🎨 **Elegant UI** - Clean and beautiful web management panel
-- 🗄️ **Multi-Database Support** - Support for SQLite, MySQL, PostgreSQL
+- 🔀 **Multi-provider aggregation** - Connect OpenAI-compatible APIs, Anthropic, Gemini, Volcengine, GitHub Copilot, Antigravity, OpenCode Zen, and more
+- 🔄 **Protocol conversion** - Convert between OpenAI Chat, OpenAI Responses, Anthropic Messages, Embeddings, Image Generation, and related request formats
+- 🧠 **Per-model protocol overrides** - Assign different outbound protocols to different models inside the same channel, useful for mixed-model gateways and Zen-style routing
+- 🔑 **Multi-key management** - Configure multiple API keys per channel and automatically select available keys based on runtime state
+- 🪪 **OAuth helpers** - Built-in entry points for GitHub Copilot Device Flow and Antigravity Web OAuth
+- ⚡ **Smart endpoint selection** - Configure multiple Base URLs per channel and prefer lower-latency endpoints
+- ⚖️ **Load balancing and resilience** - Supports round robin, random, failover, weighted routing, retries, circuit breaking, and sticky sessions
+- 🔃 **Model sync and detection** - Sync upstream models, detect added / removed models, configure ignore rules, and apply updates manually
+- 📊 **Analytics and logs** - Track requests, tokens, costs, latency, and view statistics by total, channel, API key, and model group
+- 📚 **API usage docs** - Built-in OpenAI / Anthropic examples for quick copy into clients or CLI tools
+- 🎨 **Web management panel** - Visual management for channels, groups, model prices, logs, settings, appearance, and API documentation
+- 🗄️ **Multi-database support** - Supports SQLite, MySQL, and PostgreSQL, with Docker Compose using a local persistent data directory by default
 
 
-## 🚀 Quick Start
+## 🚀 Docker Compose Deployment
 
-### 🐳 Docker
+Octopus recommends Docker Compose for deployment. This method builds the image, starts the service, and persists runtime data to the local `./data` directory.
 
-Clone the repository and run with docker compose:
+### 1. Requirements
 
-```bash
-git clone https://github.com/wang5339/octopus-2.git
-cd octopus-2-2
-docker compose up -d
-```
+- Docker installed
+- Docker Compose installed (usually bundled with Docker Desktop)
 
-
-### 📦 Download from Release
-
-Download the binary for your platform from [Releases](https://github.com/wang5339/octopus-2/releases), then run:
+### 2. Clone the repository
 
 ```bash
-./octopus start
-```
-
-### 🛠️ Build from Source
-
-**Requirements:**
-- Go 1.24.4
-- Node.js 18+
-- pnpm
-
-```bash
-# Clone the repository
 git clone https://github.com/wang5339/octopus-2.git
 cd octopus-2
-# Build frontend
-cd web && pnpm install && pnpm run build && cd ..
-# Move frontend assets to static directory
-mv web/out static/
-# Start the backend service
-go run main.go start 
 ```
 
-> 💡 **Tip**: The frontend build artifacts are embedded into the Go binary, so you must build the frontend before starting the backend.
-
-**Development Mode**
+### 3. Start the service
 
 ```bash
-cd web && pnpm install && NEXT_PUBLIC_API_BASE_URL="http://127.0.0.1:8080" pnpm run dev
-## Open a new terminal, start the backend service
-go run main.go start
-## Access the frontend at
-http://localhost:3000
+docker compose up -d --build
 ```
+
+After startup, visit:
+
+```text
+http://localhost:8080
+```
+
+### 4. Check service status
+
+```bash
+docker compose ps
+docker compose logs -f octopus
+```
+
+### 5. Stop or restart the service
+
+```bash
+# Stop the service
+docker compose down
+
+# Restart the service
+docker compose restart
+```
+
+### 6. Data persistence
+
+`docker-compose.yml` mounts the local data directory by default:
+
+```yaml
+volumes:
+  - './data:/app/data'
+```
+
+Configuration files and the SQLite database are stored in the `data` directory under the project root.
 
 ### 🔐 Default Credentials
 
@@ -223,7 +236,16 @@ All configuration options can be overridden via environment variables using the 
 
 ### 📡 Channel Management
 
-Channels are the basic configuration units for connecting to LLM providers.
+Channels are the basic configuration units for connecting to LLM providers and model services. A channel can define its type, Base URLs, multiple API keys, proxy, custom headers, model list, per-model protocol overrides, and upstream model synchronization strategy.
+
+**Supported capabilities:**
+
+- Provider presets: quickly fill common channel types and Base URLs
+- Model fetching: fetch upstream model lists and select models into a channel
+- Model testing: test model availability before or after saving
+- Upstream update detection: detect added and removed models; added models can be appended, while removed models require manual confirmation
+- Ignore rules: skip unwanted models with exact model names or `regex:` rules
+- OAuth channels: GitHub Copilot Device Flow and Antigravity Web OAuth entry points
 
 **Base URL Guide:**
 
@@ -235,8 +257,12 @@ The program automatically appends API paths based on channel type. You only need
 | OpenAI Responses | `/responses` | `https://api.openai.com/v1` | `https://api.openai.com/v1/responses` |
 | Anthropic | `/messages` | `https://api.anthropic.com/v1` | `https://api.anthropic.com/v1/messages` |
 | Gemini | `/models/:model:generateContent` | `https://generativelanguage.googleapis.com/v1beta` | `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent` |
+| Volcengine | `/responses` | Provider base URL | `{base_url}/responses` |
 | OpenAI Embedding | `/embeddings` | `https://api.openai.com/v1` | `https://api.openai.com/v1/embeddings` |
 | OpenAI Image Generation | `/images/generations` | `https://api.openai.com/v1` | `https://api.openai.com/v1/images/generations` |
+| GitHub Copilot | `/chat/completions` | `https://api.githubcopilot.com` | `https://api.githubcopilot.com/chat/completions` |
+| Antigravity | `/v1internal:generateContent` / `/v1internal:streamGenerateContent` | `https://cloudcode-pa.googleapis.com` | `https://cloudcode-pa.googleapis.com/v1internal:generateContent` |
+| OpenCode Zen | Dynamically chooses Chat / Responses / Anthropic / Gemini paths by model | Zen service base URL | Routed automatically by model prefix |
 
 > 💡 **Tip**: No need to include specific API endpoint paths in the Base URL - the program handles this automatically.
 
@@ -369,4 +395,3 @@ Edit `~/.codex/auth.json`
 
 - 🙏 [looplj/axonhub](https://github.com/looplj/axonhub) - The LLM API adaptation module in this project is directly derived from this repository
 - 📊 [sst/models.dev](https://github.com/sst/models.dev) - AI model database providing model pricing data
-

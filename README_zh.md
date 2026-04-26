@@ -4,78 +4,91 @@
 
 ### Octopus
 
-**为个人打造的简单、美观、优雅的 LLM API 聚合与负载均衡服务**
+**面向个人与小团队的自托管 AI API 网关，统一聚合多家模型服务、协议转换、负载均衡、模型管理与用量统计**
 
 简体中文 | [English](README.md)
 
 </div>
 
 
+## 🐙 项目简介
+
+Octopus 是一个自托管的 LLM API 聚合网关。它可以把 OpenAI 兼容接口、Anthropic、Gemini、Volcengine、GitHub Copilot、Antigravity、OpenCode Zen 等不同上游统一接入到一个管理面板中，并对外提供兼容 OpenAI / Anthropic 使用习惯的 API。
+
+你可以通过 Octopus 统一管理渠道、Base URL、API Key、模型列表、分组路由、负载均衡策略和模型价格；同时还能查看请求日志、Token 消耗、费用统计、渠道健康状态和 API 使用文档。适合个人自用、多模型聚合、API Key 统一分发、模型路由实验和轻量级团队网关场景。
+
+
 ## ✨ 特性
 
-- 🔀 **多渠道聚合** - 支持接入多个 LLM 供应商渠道，统一管理
-- 🔑 **多Key支持** - 单渠道支持配置多 Key
-- ⚡ **智能优选** - 单渠道多端点，智能选择延迟最小的端点请求
-- ⚖️ **负载均衡** - 自动分配请求，确保服务稳定高效
-- 🔄 **协议互转** - 支持 OpenAI Chat / OpenAI Responses / Anthropic 三种 API 格式互相转换，同时支持 OpenAI Embeddings 和 Image Generation
-- 💰 **价格同步** - 自动更新模型价格
-- 🔃 **模型同步** - 自动与渠道同步可用模型列表，省心省力
-- 📊 **数据统计** - 全面的请求统计、Token 消耗、费用追踪
-- 🎨 **优雅界面** - 简洁美观的 Web 管理面板
-- 🗄️ **多数据库支持** - 支持 SQLite、MySQL、PostgreSQL
+- 🔀 **多上游聚合** - 统一接入 OpenAI 兼容接口、Anthropic、Gemini、Volcengine、GitHub Copilot、Antigravity、OpenCode Zen 等渠道
+- 🔄 **协议转换** - 支持 OpenAI Chat、OpenAI Responses、Anthropic Messages、Embeddings、Image Generation 等请求格式转换
+- 🧠 **模型级协议覆盖** - 同一渠道内可为不同模型指定不同出站协议，适配混合模型网关和 Zen 类路由
+- 🔑 **多 Key 管理** - 单渠道支持多个 API Key，可按运行状态自动选择可用 Key
+- 🪪 **OAuth 授权辅助** - 支持 GitHub Copilot Device Flow 与 Antigravity Web OAuth 的授权入口
+- ⚡ **智能端点优选** - 单渠道可配置多个 Base URL，并优先使用延迟更低的端点
+- ⚖️ **负载均衡与容错** - 支持轮询、随机、故障转移、加权分配，并包含重试、熔断和会话保持能力
+- 🔃 **模型同步与检测** - 自动同步上游模型，支持手动检测新增 / 消失模型、忽略规则和一键应用
+- 📊 **统计与日志** - 统计请求量、Token、费用、耗时，并按总量、渠道、API Key、模型分组等维度展示
+- 📚 **API 使用文档** - 内置 OpenAI / Anthropic 等调用示例，方便复制到客户端或 CLI 工具
+- 🎨 **Web 管理面板** - 提供渠道、分组、模型价格、日志、设置、外观和 API 文档等可视化管理
+- 🗄️ **多数据库支持** - 支持 SQLite、MySQL、PostgreSQL，Docker Compose 默认使用本地持久化数据目录
 
 
-## 🚀 快速开始
+## 🚀 Docker Compose 部署
 
-### 🐳 Docker 运行
+Octopus 推荐使用 Docker Compose 部署。该方式会自动构建镜像、启动服务，并将运行数据持久化到本机 `./data` 目录。
 
-克隆项目并使用 docker compose 运行：
+### 1. 环境要求
 
-```bash
-git clone https://github.com/wang5339/octopus-2.git
-cd octopus-2-2
-docker compose up -d
-```
+- 已安装 Docker
+- 已安装 Docker Compose（Docker Desktop 通常已内置）
 
-
-### 📦 从 Release 下载
-
-从 [Releases](https://github.com/wang5339/octopus-2/releases) 下载对应平台的二进制文件，然后运行：
+### 2. 克隆项目
 
 ```bash
-./octopus start
-```
-
-### 🛠️ 源码运行
-
-**环境要求：**
-- Go 1.24.4
-- Node.js 18+
-- pnpm
-
-```bash
-# 克隆项目
 git clone https://github.com/wang5339/octopus-2.git
 cd octopus-2
-# 构建前端
-cd web && pnpm install && pnpm run build && cd ..
-# 移动前端产物到 static 目录
-mv web/out static/
-# 启动后端服务
-go run main.go start 
 ```
 
-> 💡 **提示**：前端构建产物会被嵌入到 Go 二进制文件中，所以必须先构建前端再启动后端。
-
-**开发模式**
+### 3. 启动服务
 
 ```bash
-cd web && pnpm install && NEXT_PUBLIC_API_BASE_URL="http://127.0.0.1:8080" pnpm run dev
-## 新建终端,启动后端服务
-go run main.go start
-## 访问前端地址
-http://localhost:3000
+docker compose up -d --build
 ```
+
+启动后访问：
+
+```text
+http://localhost:8080
+```
+
+### 4. 查看运行状态
+
+```bash
+docker compose ps
+docker compose logs -f octopus
+```
+
+### 5. 停止或重启服务
+
+```bash
+# 停止服务
+docker compose down
+
+# 重启服务
+docker compose restart
+```
+
+### 6. 数据持久化
+
+`docker-compose.yml` 默认挂载：
+
+```yaml
+volumes:
+  - './data:/app/data'
+```
+
+因此配置文件和 SQLite 数据库会保存在项目根目录的 `data` 目录中。
 
 ### 🔐 默认账户
 
@@ -224,7 +237,16 @@ http://localhost:3000
 
 ### 📡 渠道管理
 
-渠道是连接 LLM 供应商的基础配置单元。
+渠道是连接 LLM 供应商和模型服务的基础配置单元。一个渠道可以配置类型、Base URL、多个 API Key、代理、自定义 Header、模型列表、模型协议覆盖和上游模型同步策略。
+
+**支持能力：**
+
+- Provider 预设：快速填充常见渠道类型和 Base URL
+- 模型拉取：从上游获取模型列表并选择写入渠道
+- 模型测试：在保存前或保存后测试模型是否可用
+- 上游更新检测：检测新增模型和消失模型，新增可追加，消失需手动确认删除
+- 忽略规则：支持精确模型名和 `regex:` 正则规则，跳过不想自动同步的模型
+- OAuth 渠道：支持 GitHub Copilot Device Flow 与 Antigravity Web OAuth
 
 **Base URL 说明：**
 
@@ -236,8 +258,12 @@ http://localhost:3000
 | OpenAI Responses | `/responses` | `https://api.openai.com/v1` | `https://api.openai.com/v1/responses` |
 | Anthropic | `/messages` | `https://api.anthropic.com/v1` | `https://api.anthropic.com/v1/messages` |
 | Gemini | `/models/:model:generateContent` | `https://generativelanguage.googleapis.com/v1beta` | `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent` |
+| Volcengine | `/responses` | 供应商提供的基础 URL | `{base_url}/responses` |
 | OpenAI Embedding | `/embeddings` | `https://api.openai.com/v1` | `https://api.openai.com/v1/embeddings` |
 | OpenAI Image Generation | `/images/generations` | `https://api.openai.com/v1` | `https://api.openai.com/v1/images/generations` |
+| GitHub Copilot | `/chat/completions` | `https://api.githubcopilot.com` | `https://api.githubcopilot.com/chat/completions` |
+| Antigravity | `/v1internal:generateContent` / `/v1internal:streamGenerateContent` | `https://cloudcode-pa.googleapis.com` | `https://cloudcode-pa.googleapis.com/v1internal:generateContent` |
+| OpenCode Zen | 按模型动态选择 Chat / Responses / Anthropic / Gemini 路径 | Zen 服务基础 URL | 根据模型名前缀自动路由 |
 
 > 💡 **提示**：填写 Base URL 时无需包含具体的 API 端点路径，程序会自动处理。
 
