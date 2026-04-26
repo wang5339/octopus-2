@@ -33,6 +33,8 @@ func Start() error {
 		r.Use(middleware.Logger())
 	}
 	r.Use(middleware.Cors())
+	// 限制请求体大小为 10MB，防止内存耗尽攻击
+	r.Use(middleware.MaxRequestBodySize(10 * 1024 * 1024))
 	r.Use(middleware.StaticEmbed("/", static.StaticFS))
 
 	router.RegisterAll(r)

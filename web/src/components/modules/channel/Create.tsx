@@ -27,6 +27,7 @@ export function CreateDialogContent() {
         enabled: true,
         proxy: false,
         match_regex: '',
+        upstream_model_update_ignored_models: '',
     });
     const t = useTranslations('channel.create');
 
@@ -61,6 +62,10 @@ export function CreateDialogContent() {
                 channel_proxy: channelProxy,
                 param_override: paramOverride,
                 match_regex: formData.match_regex.trim(),
+                upstream_model_update_ignored_models: formData.upstream_model_update_ignored_models
+                    .split(',')
+                    .map((m) => m.trim())
+                    .filter(Boolean),
             },
             {
                 onSuccess: () => {
@@ -79,6 +84,7 @@ export function CreateDialogContent() {
                         enabled: true,
                         proxy: false,
                         match_regex: '',
+                        upstream_model_update_ignored_models: '',
                     });
                     setIsOpen(false);
                 }

@@ -21,8 +21,8 @@ export function Setting() {
                 <SettingAccount key="setting-account" />
                 <SettingSystem key="setting-system" />
                 <SettingLog key="setting-log" />
-                <SettingLLMPrice key="setting-llmprice" />
                 <SettingAPIKey key="setting-apikey" />
+                <SettingLLMPrice key="setting-llmprice" />
                 <SettingLLMSync key="setting-llmsync" />
                 <SettingCircuitBreaker key="setting-circuit-breaker" />
                 <SettingBackup key="setting-backup" />

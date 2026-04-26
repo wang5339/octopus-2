@@ -13,6 +13,10 @@ export enum ChannelType {
     Gemini = 3,
     Volcengine = 4,
     OpenAIEmbedding = 5,
+    OpenAIImageGeneration = 6,
+    GithubCopilot = 7,
+    Antigravity = 8,
+    Zen = 9,
 }
 
 /**
@@ -33,6 +37,11 @@ export type BaseUrl = {
 export type CustomHeader = {
     header_key: string;
     header_value: string;
+};
+
+export type ModelProtocolOverride = {
+    model: string;
+    type: ChannelType;
 };
 
 export type ChannelKey = {
@@ -65,14 +74,23 @@ export type Channel = {
     param_override?: string | null;
     channel_proxy?: string | null;
     match_regex?: string | null;
+    upstream_model_update_last_check_time: number;
+    upstream_model_update_last_detected_models: string[];
+    upstream_model_update_last_removed_models: string[];
+    upstream_model_update_ignored_models: string[];
+    model_protocol_overrides: ModelProtocolOverride[];
     stats: StatsChannel;
 };
 
 // Internal type: backend may return null for slice fields; normalize to [] in select()
-type ChannelServer = Omit<Channel, 'base_urls' | 'custom_header' | 'keys'> & {
+type ChannelServer = Omit<Channel, 'base_urls' | 'custom_header' | 'keys' | 'upstream_model_update_last_detected_models' | 'upstream_model_update_last_removed_models' | 'upstream_model_update_ignored_models' | 'model_protocol_overrides'> & {
     base_urls: BaseUrl[] | null;
     custom_header: CustomHeader[] | null;
     keys: ChannelKey[] | null;
+    upstream_model_update_last_detected_models: string[] | null;
+    upstream_model_update_last_removed_models: string[] | null;
+    upstream_model_update_ignored_models: string[] | null;
+    model_protocol_overrides: ModelProtocolOverride[] | null;
 };
 
 /**
@@ -93,6 +111,8 @@ export type CreateChannelRequest = {
     channel_proxy?: string | null;
     param_override?: string | null;
     match_regex?: string | null;
+    upstream_model_update_ignored_models?: string[];
+    model_protocol_overrides?: ModelProtocolOverride[];
 };
 
 /**
@@ -113,6 +133,8 @@ export type UpdateChannelRequest = {
     channel_proxy?: string | null;
     param_override?: string | null;
     match_regex?: string | null;
+    upstream_model_update_ignored_models?: string[];
+    model_protocol_overrides?: ModelProtocolOverride[];
     // keys diff
     keys_to_add?: Array<Pick<ChannelKey, 'enabled' | 'channel_key' | 'remark'>>;
     keys_to_update?: Array<{ id: number; enabled?: boolean; channel_key?: string; remark?: string }>;
@@ -152,6 +174,10 @@ export function useChannelList() {
                 base_urls: item.base_urls ?? [],
                 custom_header: item.custom_header ?? [],
                 keys: item.keys ?? [],
+                upstream_model_update_last_detected_models: item.upstream_model_update_last_detected_models ?? [],
+                upstream_model_update_last_removed_models: item.upstream_model_update_last_removed_models ?? [],
+                upstream_model_update_ignored_models: item.upstream_model_update_ignored_models ?? [],
+                model_protocol_overrides: item.model_protocol_overrides ?? [],
             }) satisfies Channel,
             formatted: {
                 input_token: formatCount(item.stats.input_token),
@@ -321,6 +347,117 @@ export function useFetchModel() {
     });
 }
 
+export type DetectChannelUpstreamUpdatesRequest = {
+    id: number;
+};
+
+export type DetectChannelUpstreamUpdatesResult = {
+    channel_id: number;
+    channel_name: string;
+    add_models: string[];
+    remove_models: string[];
+    last_check_time: number;
+};
+
+export function useDetectChannelUpstreamUpdates() {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: async (data: DetectChannelUpstreamUpdatesRequest) => {
+            return apiClient.post<DetectChannelUpstreamUpdatesResult>('/api/v1/channel/upstream-updates/detect', data);
+        },
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['channels', 'list'] });
+        },
+        onError: (error) => {
+            logger.error('上游模型更新检测失败:', error);
+        },
+    });
+}
+
+export type ApplyChannelUpstreamUpdatesRequest = {
+    id: number;
+    add_models?: string[];
+    remove_models?: string[];
+    ignore_models?: string[];
+};
+
+export function useApplyChannelUpstreamUpdates() {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: async (data: ApplyChannelUpstreamUpdatesRequest) => {
+            return apiClient.post('/api/v1/channel/upstream-updates/apply', data);
+        },
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['channels', 'list'] });
+            queryClient.invalidateQueries({ queryKey: ['models', 'list'] });
+            queryClient.invalidateQueries({ queryKey: ['models', 'channel'] });
+        },
+        onError: (error) => {
+            logger.error('上游模型更新应用失败:', error);
+        },
+    });
+}
+
+export type ModelProtocolDetectRequest = {
+    id: number;
+    models: string[];
+    types?: ChannelType[];
+};
+
+export type ModelProtocolProbeResult = {
+    type: ChannelType;
+    passed: boolean;
+    error?: string;
+    delay?: number;
+};
+
+export type ModelProtocolDetectResult = {
+    model: string;
+    recommended?: ChannelType | null;
+    results: ModelProtocolProbeResult[];
+};
+
+export type ApplyModelProtocolRecommendationsRequest = {
+    id: number;
+    overrides: ModelProtocolOverride[];
+};
+
+export type ApplyModelProtocolRecommendationsResult = {
+    id: number;
+    applied: ModelProtocolOverride[];
+    model_protocol_overrides: ModelProtocolOverride[];
+};
+
+export function useDetectChannelModelProtocols() {
+    return useMutation({
+        mutationFn: async (data: ModelProtocolDetectRequest) => {
+            return apiClient.post<ModelProtocolDetectResult[]>('/api/v1/channel/model-protocols/detect', data);
+        },
+        onSuccess: (data) => {
+            logger.log('模型协议检测完成:', data);
+        },
+        onError: (error) => {
+            logger.error('模型协议检测失败:', error);
+        },
+    });
+}
+
+export function useApplyChannelModelProtocols() {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: async (data: ApplyModelProtocolRecommendationsRequest) => {
+            return apiClient.post<ApplyModelProtocolRecommendationsResult>('/api/v1/channel/model-protocols/apply', data);
+        },
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['channels', 'list'] });
+            queryClient.invalidateQueries({ queryKey: ['models', 'channel'] });
+        },
+        onError: (error) => {
+            logger.error('模型协议推荐应用失败:', error);
+        },
+    });
+}
+
 /**
  * 获取渠道最后同步时间 Hook
  * 
@@ -360,6 +497,129 @@ export function useSyncChannel() {
         },
         onError: (error) => {
             logger.error('渠道同步失败:', error);
+        },
+    });
+}
+
+/**
+ * 测试渠道模型 Hook
+ *
+ * @example
+ * const testModels = useTestChannelModels();
+ *
+ * testModels.mutate({
+ *   channel_id: 1,
+ *   models: ['gpt-4', 'gpt-3.5-turbo'],
+ * });
+ */
+export type TestModelRequest = {
+    channel_id: number;
+    models: string[];
+};
+
+export type TestModelResult = {
+    model: string;
+    passed: boolean;
+    error?: string;
+    delay?: number;
+};
+
+export function useTestChannelModels() {
+    return useMutation({
+        mutationFn: async (data: TestModelRequest) => {
+            return apiClient.post<TestModelResult[]>('/api/v1/channel/test-models', data);
+        },
+        onSuccess: (data) => {
+            logger.log('模型测试完成:', data);
+        },
+        onError: (error) => {
+            logger.error('模型测试失败:', error);
+        },
+    });
+}
+
+export type TestModelByConfigRequest = {
+    type: ChannelType;
+    base_urls: BaseUrl[];
+    keys: Array<Pick<ChannelKey, 'enabled' | 'channel_key'>>;
+    proxy?: boolean;
+    channel_proxy?: string | null;
+    custom_header?: Array<CustomHeader>;
+    models: string[];
+};
+
+export function useTestChannelModelsByConfig() {
+    return useMutation({
+        mutationFn: async (data: TestModelByConfigRequest) => {
+            return apiClient.post<TestModelResult[]>('/api/v1/channel/test-models-by-config', data);
+        },
+        onSuccess: (data) => {
+            logger.log('模型(配置)测试完成:', data);
+        },
+        onError: (error) => {
+            logger.error('模型(配置)测试失败:', error);
+        },
+    });
+}
+
+// ---- GitHub Copilot Device Flow ----
+
+export type CopilotDeviceCodeResponse = {
+    device_code: string;
+    user_code: string;
+    verification_uri: string;
+    expires_in: number;
+    interval: number;
+};
+
+export type CopilotPollResponse = {
+    access_token?: string;
+    token_type?: string;
+    scope?: string;
+    error?: string;
+};
+
+export function useCopilotRequestDeviceCode() {
+    return useMutation({
+        mutationFn: async () => {
+            return apiClient.post<CopilotDeviceCodeResponse>('/api/v1/channel/copilot/device-code', {});
+        },
+    });
+}
+
+export function useCopilotPollToken() {
+    return useMutation({
+        mutationFn: async (deviceCode: string) => {
+            return apiClient.post<CopilotPollResponse>('/api/v1/channel/copilot/poll-token', { device_code: deviceCode });
+        },
+    });
+}
+
+export type AntigravityOAuthStartResponse = {
+    state: string;
+    auth_url: string;
+};
+
+export type AntigravityOAuthPollResponse = {
+    status: 'pending' | 'authorized' | 'failed';
+    access_token?: string;
+    token_type?: string;
+    scope?: string;
+    error?: string;
+};
+
+export function useAntigravityOAuthStart() {
+    return useMutation({
+        mutationFn: async () => {
+            return apiClient.post<AntigravityOAuthStartResponse>('/api/v1/channel/antigravity/oauth/start', {});
+        },
+    });
+}
+
+export function useAntigravityOAuthPoll() {
+    return useMutation({
+        mutationFn: async (state: string) => {
+            return apiClient.post<AntigravityOAuthPollResponse>('/api/v1/channel/antigravity/oauth/poll', { state });
         },
     });
 }

@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"net/http"
+	"time"
 
 	"github.com/bestruirui/octopus/internal/model"
 	"github.com/bestruirui/octopus/internal/op"
@@ -15,6 +16,8 @@ import (
 func init() {
 	router.NewGroupRouter("/api/v1/user").
 		Use(middleware.RequireJSON()).
+		// 登录接口添加速率限制：每个 IP 每分钟最多 5 次尝试
+		Use(middleware.IPRateLimit(5, 1*time.Minute)).
 		AddRoute(
 			router.NewRoute("/login", http.MethodPost).
 				Handle(login),

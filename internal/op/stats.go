@@ -36,6 +36,10 @@ var statsAPIKeyCache = cache.New[int, model.StatsAPIKey](16)
 var statsAPIKeyCacheNeedUpdate = make(map[int]struct{})
 var statsAPIKeyCacheNeedUpdateLock sync.Mutex
 
+var statsGroupCache = cache.New[string, model.StatsGroup](16)
+var statsGroupCacheNeedUpdate = make(map[string]struct{})
+var statsGroupCacheNeedUpdateLock sync.Mutex
+
 func StatsSaveDBTask() {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
@@ -90,7 +94,15 @@ func StatsSaveDB(ctx context.Context) error {
 	statsAPIKeyCacheNeedUpdate = make(map[int]struct{})
 	statsAPIKeyCacheNeedUpdateLock.Unlock()
 
-	return persistStatsSnapshots(ctx, totalSnap, dailySnap, hourlyAll, channelIDs, modelIDs, apiKeyIDs)
+	statsGroupCacheNeedUpdateLock.Lock()
+	groupNames := make([]string, 0, len(statsGroupCacheNeedUpdate))
+	for name := range statsGroupCacheNeedUpdate {
+		groupNames = append(groupNames, name)
+	}
+	statsGroupCacheNeedUpdate = make(map[string]struct{})
+	statsGroupCacheNeedUpdateLock.Unlock()
+
+	return persistStatsSnapshots(ctx, totalSnap, dailySnap, hourlyAll, channelIDs, modelIDs, apiKeyIDs, groupNames)
 }
 
 func persistStatsSnapshots(
@@ -101,6 +113,7 @@ func persistStatsSnapshots(
 	channelIDs []int,
 	modelIDs []int,
 	apiKeyIDs []int,
+	groupNames []string,
 ) error {
 	dbConn := db.GetDB().WithContext(ctx)
 
@@ -157,6 +170,16 @@ func persistStatsSnapshots(
 		}
 	}
 
+	for _, name := range groupNames {
+		g, ok := statsGroupCache.Get(name)
+		if !ok {
+			continue
+		}
+		if result := dbConn.Save(&g); result.Error != nil {
+			return result.Error
+		}
+	}
+
 	return nil
 }
 
@@ -196,7 +219,15 @@ func statsSaveDBWithDailyOverride(ctx context.Context, dailyOverride model.Stats
 	statsAPIKeyCacheNeedUpdate = make(map[int]struct{})
 	statsAPIKeyCacheNeedUpdateLock.Unlock()
 
-	return persistStatsSnapshots(ctx, totalSnap, dailyOverride, hourlyAll, channelIDs, modelIDs, apiKeyIDs)
+	statsGroupCacheNeedUpdateLock.Lock()
+	groupNames := make([]string, 0, len(statsGroupCacheNeedUpdate))
+	for name := range statsGroupCacheNeedUpdate {
+		groupNames = append(groupNames, name)
+	}
+	statsGroupCacheNeedUpdate = make(map[string]struct{})
+	statsGroupCacheNeedUpdateLock.Unlock()
+
+	return persistStatsSnapshots(ctx, totalSnap, dailyOverride, hourlyAll, channelIDs, modelIDs, apiKeyIDs, groupNames)
 }
 
 func StatsDailyUpdate(ctx context.Context, metrics model.StatsMetrics) error {
@@ -265,7 +296,9 @@ func StatsModelUpdate(stats model.StatsModel) error {
 	modelCache, ok := statsModelCache.Get(stats.ID)
 	if !ok {
 		modelCache = model.StatsModel{
-			ID: stats.ID,
+			ID:        stats.ID,
+			Name:      stats.Name,
+			ChannelID: stats.ChannelID,
 		}
 	}
 	modelCache.StatsMetrics.Add(stats.StatsMetrics)
@@ -361,6 +394,29 @@ func StatsAPIKeyList() []model.StatsAPIKey {
 		apiKeys = append(apiKeys, v)
 	}
 	return apiKeys
+}
+
+func StatsGroupUpdate(groupName string, metrics model.StatsMetrics) error {
+	groupCache, ok := statsGroupCache.Get(groupName)
+	if !ok {
+		groupCache = model.StatsGroup{
+			GroupName: groupName,
+		}
+	}
+	groupCache.StatsMetrics.Add(metrics)
+	statsGroupCache.Set(groupName, groupCache)
+	statsGroupCacheNeedUpdateLock.Lock()
+	statsGroupCacheNeedUpdate[groupName] = struct{}{}
+	statsGroupCacheNeedUpdateLock.Unlock()
+	return nil
+}
+
+func StatsGroupList() []model.StatsGroup {
+	groups := make([]model.StatsGroup, 0, statsGroupCache.Len())
+	for _, v := range statsGroupCache.GetAll() {
+		groups = append(groups, v)
+	}
+	return groups
 }
 
 func StatsHourlyGet() []model.StatsHourly {
@@ -460,6 +516,34 @@ func statsRefreshCache(ctx context.Context) error {
 	statsAPIKeyCacheNeedUpdateLock.Unlock()
 	for _, v := range loadedAPIKeys {
 		statsAPIKeyCache.Set(v.APIKeyID, v)
+	}
+
+	var loadedModels []model.StatsModel
+	result = dbConn.Find(&loadedModels)
+	if result.Error != nil {
+		return fmt.Errorf("failed to get model stats: %v", result.Error)
+	}
+
+	statsModelCache.Clear()
+	statsModelCacheNeedUpdateLock.Lock()
+	statsModelCacheNeedUpdate = make(map[int]struct{})
+	statsModelCacheNeedUpdateLock.Unlock()
+	for _, v := range loadedModels {
+		statsModelCache.Set(v.ID, v)
+	}
+
+	var loadedGroups []model.StatsGroup
+	result = dbConn.Find(&loadedGroups)
+	if result.Error != nil {
+		return fmt.Errorf("failed to get group stats: %v", result.Error)
+	}
+
+	statsGroupCache.Clear()
+	statsGroupCacheNeedUpdateLock.Lock()
+	statsGroupCacheNeedUpdate = make(map[string]struct{})
+	statsGroupCacheNeedUpdateLock.Unlock()
+	for _, v := range loadedGroups {
+		statsGroupCache.Set(v.GroupName, v)
 	}
 
 	statsHourlyCacheLock.Lock()

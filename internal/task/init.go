@@ -7,16 +7,19 @@ import (
 	"github.com/bestruirui/octopus/internal/model"
 	"github.com/bestruirui/octopus/internal/op"
 	"github.com/bestruirui/octopus/internal/price"
+	"github.com/bestruirui/octopus/internal/relay/balancer"
 	"github.com/bestruirui/octopus/internal/utils/log"
 )
 
 const (
-	TaskPriceUpdate  = "price_update"
-	TaskStatsSave    = "stats_save"
-	TaskRelayLogSave = "relay_log_save"
-	TaskSyncLLM      = "sync_llm"
-	TaskCleanLLM     = "clean_llm"
-	TaskBaseUrlDelay = "base_url_delay"
+	TaskPriceUpdate     = "price_update"
+	TaskStatsSave       = "stats_save"
+	TaskRelayLogSave    = "relay_log_save"
+	TaskSyncLLM         = "sync_llm"
+	TaskCleanLLM        = "clean_llm"
+	TaskBaseUrlDelay    = "base_url_delay"
+	TaskCleanupSessions = "cleanup_sessions"
+	TaskCleanupCircuits = "cleanup_circuits"
 )
 
 func Init() {
@@ -57,6 +60,22 @@ func Init() {
 	Register(TaskRelayLogSave, 10*time.Minute, false, func() {
 		if err := op.RelayLogSaveDBTask(context.Background()); err != nil {
 			log.Warnf("relay log save db task failed: %v", err)
+		}
+	})
+
+	// 注册会话清理任务（每小时清理超过 24 小时未使用的会话）
+	Register(TaskCleanupSessions, 1*time.Hour, false, func() {
+		count := balancer.CleanupExpiredSessions(24 * time.Hour)
+		if count > 0 {
+			log.Infof("cleaned up %d expired session entries", count)
+		}
+	})
+
+	// 注册熔断器清理任务（每小时清理超过 24 小时未活动的熔断器）
+	Register(TaskCleanupCircuits, 1*time.Hour, false, func() {
+		count := balancer.CleanupOldCircuitBreakers(24 * time.Hour)
+		if count > 0 {
+			log.Infof("cleaned up %d old circuit breaker entries", count)
 		}
 	})
 }

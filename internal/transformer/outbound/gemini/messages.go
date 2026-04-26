@@ -140,6 +140,18 @@ func audioTypeToMimeType(format string) string {
 	}
 }
 
+// ConvertLLMToGeminiRequest converts an internal LLM request to a Gemini GenerateContentRequest.
+// Exported for use by other outbound adapters (e.g. antigravity).
+func ConvertLLMToGeminiRequest(request *model.InternalLLMRequest) *model.GeminiGenerateContentRequest {
+	return convertLLMToGeminiRequest(request)
+}
+
+// ConvertGeminiToLLMResponse converts a Gemini response to an internal LLM response.
+// Exported for use by other outbound adapters (e.g. antigravity).
+func ConvertGeminiToLLMResponse(geminiResp *model.GeminiGenerateContentResponse, isStream bool) *model.InternalLLMResponse {
+	return convertGeminiToLLMResponse(geminiResp, isStream)
+}
+
 func convertLLMToGeminiRequest(request *model.InternalLLMRequest) *model.GeminiGenerateContentRequest {
 	geminiReq := &model.GeminiGenerateContentRequest{
 		Contents: []*model.GeminiContent{},

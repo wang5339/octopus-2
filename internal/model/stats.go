@@ -43,6 +43,11 @@ type StatsAPIKey struct {
 	StatsMetrics
 }
 
+type StatsGroup struct {
+	GroupName string `json:"group_name" gorm:"primaryKey"`
+	StatsMetrics
+}
+
 // Add aggregates another StatsMetrics into the current one.
 func (s *StatsMetrics) Add(delta StatsMetrics) {
 	s.InputToken += delta.InputToken

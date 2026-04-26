@@ -2,19 +2,24 @@
 
 import { useEffect, useState, useRef } from 'react';
 import { useTranslations } from 'next-intl';
-import { ScrollText, Calendar, Trash2 } from 'lucide-react';
+import { ScrollText, Calendar, Trash2, List } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
 import { Button } from '@/components/ui/button';
 import { useSettingList, useSetSetting, SettingKey } from '@/api/endpoints/setting';
 import { useClearLogs } from '@/api/endpoints/log';
 import { toast } from '@/components/common/Toast';
+import { useSettingStore } from '@/stores/setting';
 
 export function SettingLog() {
     const t = useTranslations('setting');
     const { data: settings } = useSettingList();
     const setSetting = useSetSetting();
     const clearLogs = useClearLogs();
+
+    const logPageSize = useSettingStore((s) => s.logPageSize);
+    const setLogPageSize = useSettingStore((s) => s.setLogPageSize);
+    const [pageSizeInput, setPageSizeInput] = useState(String(logPageSize));
 
     const [enabled, setEnabled] = useState(true);
     const [keepPeriod, setKeepPeriod] = useState('7');
@@ -113,6 +118,31 @@ export function SettingLog() {
                     placeholder={t('log.keepPeriod.placeholder')}
                     className="w-48 rounded-xl"
                     disabled={!enabled}
+                />
+            </div>
+
+            {/* 每页显示条数 */}
+            <div className="flex items-center justify-between gap-4">
+                <div className="flex items-center gap-3">
+                    <List className="h-5 w-5 text-muted-foreground" />
+                    <span className="text-sm font-medium">{t('log.pageSize.label')}</span>
+                </div>
+                <Input
+                    type="number"
+                    value={pageSizeInput}
+                    onChange={(e) => setPageSizeInput(e.target.value)}
+                    onBlur={() => {
+                        const v = Math.max(10, Math.min(200, Number(pageSizeInput) || 50));
+                        setPageSizeInput(String(v));
+                        if (v !== logPageSize) {
+                            setLogPageSize(v);
+                            toast.success(t('saved'));
+                        }
+                    }}
+                    placeholder="50"
+                    className="w-48 rounded-xl"
+                    min={10}
+                    max={200}
                 />
             </div>
 

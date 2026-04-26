@@ -2,6 +2,7 @@ package relay
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -33,7 +34,7 @@ func Handler(inboundType inbound.InboundType, c *gin.Context) {
 	if supportedModels != "" {
 		supportedModelsArray := strings.Split(supportedModels, ",")
 		if !slices.Contains(supportedModelsArray, internalRequest.Model) {
-			resp.Error(c, http.StatusBadRequest, "model not supported")
+			resp.Error(c, http.StatusBadRequest, "model not allowed for this API key")
 			return
 		}
 	}
@@ -106,32 +107,35 @@ func Handler(inboundType inbound.InboundType, c *gin.Context) {
 			continue
 		}
 
-		// 出站适配器
-		outAdapter := outbound.Get(channel.Type)
+		upstreamModelName := item.ModelName
+		effectiveType := resolveModelOutboundType(*channel, upstreamModelName)
+
+		// 出站适配器：模型级协议覆盖优先，其次保留 Zen 渠道按模型动态选择协议。
+		outAdapter := outbound.GetForModel(effectiveType, upstreamModelName)
 		if outAdapter == nil {
-			iter.Skip(channel.ID, usedKey.ID, channel.Name, fmt.Sprintf("unsupported channel type: %d", channel.Type))
+			iter.Skip(channel.ID, usedKey.ID, channel.Name, fmt.Sprintf("unsupported channel type: %d", effectiveType))
 			continue
 		}
 
-		// 类型兼容性检查
-		if internalRequest.IsEmbeddingRequest() && !outbound.IsEmbeddingChannelType(channel.Type) {
+		// 类型兼容性检查使用最终生效的出站协议。
+		if internalRequest.IsEmbeddingRequest() && !outbound.IsEmbeddingChannelType(effectiveType) {
 			iter.Skip(channel.ID, usedKey.ID, channel.Name, "channel type not compatible with embedding request")
 			continue
 		}
-		if internalRequest.IsImageGenerationRequest() && !outbound.IsImageGenerationChannelType(channel.Type) {
+		if internalRequest.IsImageGenerationRequest() && !outbound.IsImageGenerationChannelType(effectiveType) {
 			iter.Skip(channel.ID, usedKey.ID, channel.Name, "channel type not compatible with image generation request")
 			continue
 		}
-		if internalRequest.IsChatRequest() && !outbound.IsChatChannelType(channel.Type) {
+		if internalRequest.IsChatRequest() && !outbound.IsChatChannelType(effectiveType) {
 			iter.Skip(channel.ID, usedKey.ID, channel.Name, "channel type not compatible with chat request")
 			continue
 		}
 
 		// 设置实际模型
-		internalRequest.Model = item.ModelName
+		internalRequest.Model = upstreamModelName
 
-		log.Infof("request model %s, mode: %d, forwarding to channel: %s model: %s (attempt %d/%d, sticky=%t)",
-			requestModel, group.Mode, channel.Name, item.ModelName,
+		log.Infof("request model %s, mode: %d, forwarding to channel: %s model: %s outbound_type: %d (attempt %d/%d, sticky=%t)",
+			requestModel, group.Mode, channel.Name, upstreamModelName, effectiveType,
 			iter.Index()+1, iter.Len(), iter.IsSticky())
 
 		// 构造尝试级上下文 -- 只写变化的 4 个字段
@@ -152,6 +156,49 @@ func Handler(inboundType inbound.InboundType, c *gin.Context) {
 			metrics.Save(c.Request.Context(), false, result.Err, iter.Attempts())
 			return
 		}
+
+		// 429（速率限制）: 尝试同渠道的下一个可用 key，而不是直接跳到下一个渠道
+		if result.StatusCode == http.StatusTooManyRequests {
+			const maxRetryKeysPerChannel = 5 // 最大重试次数，防止无限循环
+			retryCount := 0
+			for retryCount < maxRetryKeysPerChannel {
+				retryCount++
+				// 把当前 key 的最新状态（StatusCode=429, LastUseTimeStamp）同步到本地
+				// channel.Keys 快照，确保 GetChannelKey 能正确跳过它，避免死循环
+				for i := range channel.Keys {
+					if channel.Keys[i].ID == ra.usedKey.ID {
+						channel.Keys[i].StatusCode = ra.usedKey.StatusCode
+						channel.Keys[i].LastUseTimeStamp = ra.usedKey.LastUseTimeStamp
+						break
+					}
+				}
+				nextKey := channel.GetChannelKey()
+				if nextKey.ChannelKey == "" || nextKey.ID == ra.usedKey.ID {
+					log.Infof("no more available keys for channel %s after %d retries", channel.Name, retryCount)
+					break // 同渠道无更多可用 key，移到下一个渠道
+				}
+				log.Infof("key %d got 429, retrying channel %s with key %d (retry %d/%d)", ra.usedKey.ID, channel.Name, nextKey.ID, retryCount, maxRetryKeysPerChannel)
+				ra.usedKey = nextKey
+				retryResult := ra.attempt()
+				if retryResult.Success {
+					metrics.Save(c.Request.Context(), true, nil, iter.Attempts())
+					return
+				}
+				if retryResult.Written {
+					metrics.Save(c.Request.Context(), false, retryResult.Err, iter.Attempts())
+					return
+				}
+				if retryResult.StatusCode != http.StatusTooManyRequests {
+					lastErr = retryResult.Err
+					break // 非 429 错误，移到下一个渠道
+				}
+				// 继续尝试下一个 key
+			}
+			if retryCount >= maxRetryKeysPerChannel {
+				log.Warnf("reached max retry limit (%d) for channel %s, moving to next channel", maxRetryKeysPerChannel, channel.Name)
+			}
+		}
+
 		lastErr = result.Err
 	}
 
@@ -179,12 +226,6 @@ func (ra *relayAttempt) attempt() attemptResult {
 
 		span.End(dbmodel.AttemptSuccess, statusCode, "")
 
-		// Channel 维度统计
-		op.StatsChannelUpdate(ra.channel.ID, dbmodel.StatsMetrics{
-			WaitTime:       span.Duration().Milliseconds(),
-			RequestSuccess: 1,
-		})
-
 		// 熔断器：记录成功
 		balancer.RecordSuccess(ra.channel.ID, ra.usedKey.ID, ra.internalRequest.Model)
 		// 会话保持：更新粘性记录
@@ -197,24 +238,33 @@ func (ra *relayAttempt) attempt() attemptResult {
 	op.ChannelKeyUpdate(ra.usedKey)
 	span.End(dbmodel.AttemptFailed, statusCode, fwdErr.Error())
 
-	// Channel 维度统计
-	op.StatsChannelUpdate(ra.channel.ID, dbmodel.StatsMetrics{
-		WaitTime:      span.Duration().Milliseconds(),
-		RequestFailed: 1,
-	})
-
-	// 熔断器：记录失败
-	balancer.RecordFailure(ra.channel.ID, ra.usedKey.ID, ra.internalRequest.Model)
+	// 熔断器：记录失败（context canceled / 客户端断开不计入，避免误触发熔断）
+	if !errors.Is(fwdErr, context.Canceled) && !errors.Is(fwdErr, context.DeadlineExceeded) {
+		balancer.RecordFailure(ra.channel.ID, ra.usedKey.ID, ra.internalRequest.Model)
+	} else {
+		log.Infof("skipping circuit breaker failure for channel %s: client context canceled", ra.channel.Name)
+	}
 
 	written := ra.c.Writer.Written()
 	if written {
 		ra.collectResponse()
 	}
 	return attemptResult{
-		Success: false,
-		Written: written,
-		Err:     fmt.Errorf("channel %s failed: %v", ra.channel.Name, fwdErr),
+		Success:    false,
+		Written:    written,
+		Err:        fmt.Errorf("channel %s failed: %v", ra.channel.Name, fwdErr),
+		StatusCode: statusCode,
 	}
+}
+
+func resolveModelOutboundType(channel dbmodel.Channel, modelName string) outbound.OutboundType {
+	trimmedModel := strings.TrimSpace(modelName)
+	for _, item := range channel.ModelProtocolOverrides {
+		if strings.EqualFold(strings.TrimSpace(item.Model), trimmedModel) {
+			return item.Type
+		}
+	}
+	return channel.Type
 }
 
 // parseRequest 解析并验证入站请求
@@ -273,9 +323,9 @@ func (ra *relayAttempt) forward() (int, error) {
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
 		body, err := io.ReadAll(response.Body)
 		if err != nil {
-			return 0, fmt.Errorf("failed to read response body: %w", err)
+			return response.StatusCode, fmt.Errorf("failed to read response body: %w", err)
 		}
-		return 0, fmt.Errorf("upstream error: %d: %s", response.StatusCode, string(body))
+		return response.StatusCode, fmt.Errorf("upstream error: %d: %s", response.StatusCode, string(body))
 	}
 
 	// 处理响应
@@ -297,8 +347,10 @@ func (ra *relayAttempt) copyHeaders(outboundRequest *http.Request) {
 		if hopByHopHeaders[strings.ToLower(key)] {
 			continue
 		}
+		// 保留多值 header（如 Cookie、Accept）
+		outboundRequest.Header.Del(key)
 		for _, value := range values {
-			outboundRequest.Header.Set(key, value)
+			outboundRequest.Header.Add(key, value)
 		}
 	}
 	if len(ra.channel.CustomHeader) > 0 {
@@ -345,15 +397,31 @@ func (ra *relayAttempt) handleStreamResponse(ctx context.Context, response *http
 		err  error
 	}
 	results := make(chan sseReadResult, 1)
+
+	// 确保在函数退出时关闭 response.Body，触发 goroutine 退出
+	defer func() {
+		_ = response.Body.Close()
+	}()
+
 	go func() {
 		defer close(results)
 		readCfg := &sse.ReadConfig{MaxEventSize: maxSSEEventSize}
 		for ev, err := range sse.Read(response.Body, readCfg) {
 			if err != nil {
-				results <- sseReadResult{err: err}
+				select {
+				case results <- sseReadResult{err: err}:
+				case <-ctx.Done():
+					// 主 goroutine 已退出，停止发送
+					return
+				}
 				return
 			}
-			results <- sseReadResult{data: ev.Data}
+			select {
+			case results <- sseReadResult{data: ev.Data}:
+			case <-ctx.Done():
+				// 主 goroutine 已退出，停止发送
+				return
+			}
 		}
 	}()
 
@@ -376,7 +444,6 @@ func (ra *relayAttempt) handleStreamResponse(ctx context.Context, response *http
 			return nil
 		case <-firstTokenC:
 			log.Warnf("first token timeout (%ds), switching channel", ra.firstTokenTimeOutSec)
-			_ = response.Body.Close()
 			return fmt.Errorf("first token timeout (%ds)", ra.firstTokenTimeOutSec)
 		case r, ok := <-results:
 			if !ok {

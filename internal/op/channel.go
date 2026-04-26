@@ -16,6 +16,7 @@ var channelCache = cache.New[int, model.Channel](16)
 var channelKeyCache = cache.New[int, model.ChannelKey](16)
 var channelKeyCacheNeedUpdate = make(map[int]struct{})
 var channelKeyCacheNeedUpdateLock sync.Mutex
+var channelUpdateLock sync.Mutex // 保护 channel 的并发更新
 
 func ChannelList(ctx context.Context) ([]model.Channel, error) {
 	channels := make([]model.Channel, 0, channelCache.Len())
@@ -43,6 +44,11 @@ func ChannelKeyUpdate(key model.ChannelKey) error {
 	if key.ID == 0 || key.ChannelID == 0 {
 		return fmt.Errorf("invalid channel key")
 	}
+
+	// 使用锁保护整个 Get-Modify-Set 操作，确保原子性
+	channelUpdateLock.Lock()
+	defer channelUpdateLock.Unlock()
+
 	ch, ok := channelCache.Get(key.ChannelID)
 	if !ok {
 		return fmt.Errorf("channel not found")
@@ -66,6 +72,10 @@ func ChannelKeyUpdate(key model.ChannelKey) error {
 	return nil
 }
 func ChannelBaseUrlUpdate(channelID int, baseUrl []model.BaseUrl) error {
+	// 使用锁保护整个 Get-Modify-Set 操作，确保原子性
+	channelUpdateLock.Lock()
+	defer channelUpdateLock.Unlock()
+
 	ch, ok := channelCache.Get(channelID)
 	if !ok {
 		return fmt.Errorf("channel not found")
@@ -176,6 +186,26 @@ func ChannelUpdate(req *model.ChannelUpdateRequest, ctx context.Context) (*model
 	if req.MatchRegex != nil {
 		selectFields = append(selectFields, "match_regex")
 		updates.MatchRegex = req.MatchRegex
+	}
+	if req.ModelProtocolOverrides != nil {
+		selectFields = append(selectFields, "model_protocol_overrides")
+		updates.ModelProtocolOverrides = *req.ModelProtocolOverrides
+	}
+	if req.UpstreamModelUpdateLastCheckTime != nil {
+		selectFields = append(selectFields, "upstream_model_update_last_check_time")
+		updates.UpstreamModelUpdateLastCheckTime = *req.UpstreamModelUpdateLastCheckTime
+	}
+	if req.UpstreamModelUpdateLastDetectedModels != nil {
+		selectFields = append(selectFields, "upstream_model_update_last_detected_models")
+		updates.UpstreamModelUpdateLastDetectedModels = *req.UpstreamModelUpdateLastDetectedModels
+	}
+	if req.UpstreamModelUpdateLastRemovedModels != nil {
+		selectFields = append(selectFields, "upstream_model_update_last_removed_models")
+		updates.UpstreamModelUpdateLastRemovedModels = *req.UpstreamModelUpdateLastRemovedModels
+	}
+	if req.UpstreamModelUpdateIgnoredModels != nil {
+		selectFields = append(selectFields, "upstream_model_update_ignored_models")
+		updates.UpstreamModelUpdateIgnoredModels = *req.UpstreamModelUpdateIgnoredModels
 	}
 
 	// 只有当有字段需要更新时才执行 UPDATE

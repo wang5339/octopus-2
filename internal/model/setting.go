@@ -10,6 +10,7 @@ type SettingKey string
 
 const (
 	SettingKeyProxyURL                  SettingKey = "proxy_url"
+	SettingKeyAPIBaseURL                SettingKey = "api_base_url"                 // 系统 API 地址（用于文档展示）
 	SettingKeyStatsSaveInterval         SettingKey = "stats_save_interval"          // 将统计信息写入数据库的周期(分钟)
 	SettingKeyModelInfoUpdateInterval   SettingKey = "model_info_update_interval"   // 模型信息更新间隔(小时)
 	SettingKeySyncLLMInterval           SettingKey = "sync_llm_interval"            // LLM 同步间隔(小时)
@@ -29,6 +30,7 @@ type Setting struct {
 func DefaultSettings() []Setting {
 	return []Setting{
 		{Key: SettingKeyProxyURL, Value: ""},
+		{Key: SettingKeyAPIBaseURL, Value: "http://localhost:8080"}, // 默认系统 API 地址
 		{Key: SettingKeyStatsSaveInterval, Value: "10"},          // 默认10分钟保存一次统计信息
 		{Key: SettingKeyCORSAllowOrigins, Value: ""},             // CORS 默认不允许跨域，设置为 "*" 才允许所有来源
 		{Key: SettingKeyModelInfoUpdateInterval, Value: "24"},    // 默认24小时更新一次模型信息
@@ -43,11 +45,11 @@ func DefaultSettings() []Setting {
 
 func (s *Setting) Validate() error {
 	switch s.Key {
-	case SettingKeyModelInfoUpdateInterval, SettingKeySyncLLMInterval, SettingKeyRelayLogKeepPeriod,
+	case SettingKeyStatsSaveInterval, SettingKeyModelInfoUpdateInterval, SettingKeySyncLLMInterval, SettingKeyRelayLogKeepPeriod,
 		SettingKeyCircuitBreakerThreshold, SettingKeyCircuitBreakerCooldown, SettingKeyCircuitBreakerMaxCooldown:
 		_, err := strconv.Atoi(s.Value)
 		if err != nil {
-			return fmt.Errorf("model info update interval must be an integer")
+			return fmt.Errorf("%s must be an integer", s.Key)
 		}
 		return nil
 	case SettingKeyRelayLogKeepEnabled:
@@ -73,6 +75,21 @@ func (s *Setting) Validate() error {
 		}
 		if parsedURL.Host == "" {
 			return fmt.Errorf("proxy URL must have a host")
+		}
+		return nil
+	case SettingKeyAPIBaseURL:
+		if s.Value == "" {
+			return nil
+		}
+		parsedURL, err := url.Parse(s.Value)
+		if err != nil {
+			return fmt.Errorf("api base URL is invalid: %w", err)
+		}
+		if parsedURL.Scheme != "http" && parsedURL.Scheme != "https" {
+			return fmt.Errorf("api base URL scheme must be http or https")
+		}
+		if parsedURL.Host == "" {
+			return fmt.Errorf("api base URL must have a host")
 		}
 		return nil
 	}

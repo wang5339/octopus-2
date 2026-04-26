@@ -175,3 +175,25 @@ func RecordFailure(channelID, keyID int, modelName string) {
 		// 但为安全起见仍更新失败时间
 	}
 }
+
+// CleanupOldCircuitBreakers 清理长时间未使用的熔断器记录
+// 应该定期调用（如每小时一次）以防止内存泄漏
+// maxIdleTime: 超过此时间未活动的熔断器将被清理（建议 24 小时）
+func CleanupOldCircuitBreakers(maxIdleTime time.Duration) int {
+	count := 0
+	now := time.Now()
+	globalBreaker.Range(func(key, value interface{}) bool {
+		entry := value.(*circuitEntry)
+		entry.mu.Lock()
+		// 只清理已关闭且长时间未活动的熔断器
+		if entry.State == StateClosed && now.Sub(entry.LastFailureTime) > maxIdleTime {
+			entry.mu.Unlock()
+			globalBreaker.Delete(key)
+			count++
+		} else {
+			entry.mu.Unlock()
+		}
+		return true
+	})
+	return count
+}

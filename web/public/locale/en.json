@@ -50,7 +50,8 @@
         "key": "Key",
         "model": "Price",
         "log": "Log",
-        "setting": "Setting"
+        "setting": "Setting",
+        "doc": "API Usage Docs"
     },
     "toolbar": {
         "popover": {
@@ -136,6 +137,7 @@
             "sortByCost": "Cost",
             "sortByCount": "Count",
             "sortByTokens": "Tokens",
+            "sortByModel": "Model",
             "noData": "No ranking data",
             "successRate": "Success Rate"
         }
@@ -151,8 +153,8 @@
         },
         "language": {
             "label": "Language",
-            "zh_hans": "Chinese (Simplified)",
-            "zh_hant": "Chinese (Traditional)",
+            "zh-Hans": "Chinese (Simplified)",
+            "zh-Hant": "Chinese (Traditional)",
             "en": "English"
         },
         "proxyUrl": {
@@ -330,6 +332,9 @@
                 "label": "Log Retention (days)",
                 "placeholder": "Enter days"
             },
+            "pageSize": {
+                "label": "Logs Per Page"
+            },
             "clear": {
                 "label": "Clear History Logs",
                 "button": "Clear",
@@ -337,6 +342,11 @@
             },
             "clearSuccess": "Logs cleared",
             "clearFailed": "Failed to clear logs"
+        },
+        "apiBaseUrl": {
+            "label": "System API Base URL",
+            "placeholder": "http://localhost:8080",
+            "hint": "Used in API docs curl example. Default: http://localhost:8080"
         }
     },
     "group": {
@@ -357,6 +367,7 @@
             "empty": "No rules"
         },
         "detail": {
+            "memberCount": "{count} members",
             "actions": {
                 "edit": "Edit",
                 "cancel": "Cancel",
@@ -380,7 +391,8 @@
             "autoAdd": "Auto Add",
             "clear": "Clear",
             "selectChannel": "Channel",
-            "selectModel": "Model"
+            "selectModel": "Model",
+            "nameRule": "Group name cannot contain spaces or colons (: / ：)"
         },
         "mode": {
             "roundRobin": "Round Robin",
@@ -462,6 +474,10 @@
                 "edit": "Edit Channel",
                 "view": "Channel Details"
             },
+            "tabs": {
+                "stats": "Statistics",
+                "models": "Models"
+            },
             "sections": {
                 "requests": "Request Details",
                 "tokens": "Token Usage",
@@ -521,6 +537,9 @@
             "modelCustomPlaceholder": "Custom model name",
             "modelAdd": "Add",
             "modelRefresh": "Refresh",
+            "selectModels": "Select Models",
+            "selectModelsConfirm": "Confirm",
+            "selectModelsCancel": "Cancel",
             "modelRefreshSuccess": "Models fetched successfully",
             "modelRefreshFailed": "Failed to fetch models",
             "modelRefreshEmpty": "No models found",
@@ -533,6 +552,14 @@
             "typeAnthropic": "Anthropic",
             "typeGemini": "Gemini",
             "typeVolcengine": "Volcengine",
+            "typeOpenAIImageGeneration": "OpenAI Image Generation",
+            "typeGithubCopilot": "GitHub Copilot",
+            "typeAntigravity": "Antigravity",
+            "typeZen": "OpenCode Zen",
+            "githubCopilotHint": "GitHub Copilot requires OAuth Device Flow authentication",
+            "githubCopilotHintDesc": "Please complete the device authorization flow on GitHub to obtain an access token, then paste it into the API Key field below. Automatic authorization is not yet supported.",
+            "antigravityHint": "Antigravity requires OAuth Web Flow authentication",
+            "antigravityHintDesc": "Please complete the OAuth authorization on the Antigravity website to obtain an API token, then paste it into the API Key field below.",
             "autoSync": "Auto Sync",
             "autoGroup": "Auto Group",
             "autoGroupNone": "None",
@@ -541,7 +568,114 @@
             "autoGroupRegex": "Regex",
             "matchRegex": "Match Regex",
             "matchRegexPlaceholder": "Optional: regex pattern to match request model names",
-            "remark": "Remark"
+            "remark": "Remark",
+            "providerPreset": "Provider Preset",
+            "providerPresetPlaceholder": "Select a provider to auto-fill Base URL and type",
+            "namePlaceholder": "Enter channel name",
+            "namePlaceholderPrefix": "My ",
+            "baseUrlTooltip": "API URL usually ends with /v1, e.g. https://api.openai.com/v1",
+            "testFirst": "Test",
+            "testFirstTitle": "Test first model",
+            "testAll": "Test All",
+            "testAllTitle": "Test all models",
+            "testFailed": "Test request failed",
+            "testNeedBaseUrlAndKey": "Please fill in Base URL and API Key first",
+            "testResultTitle": "Test Results",
+            "testResultSummary": "{total} models tested, {passed} passed",
+            "copilotDeviceFlow": "GitHub Device Flow Authorization",
+            "copilotStartAuth": "Start GitHub Authorization",
+            "copilotUserCodeHint": "Open the authorization page in your browser and enter the code below:",
+            "copilotOpenGitHub": "Open GitHub Authorization Page",
+            "copilotWaiting": "Waiting for authorization, please complete the steps on GitHub...",
+            "copilotCodeCopied": "Code copied",
+            "copilotSuccess": "Authorized successfully, API Token has been filled in",
+            "copilotExpired": "Authorization code expired, please start again",
+            "copilotDenied": "Authorization denied",
+            "copilotRetry": "Retry Authorization",
+            "copilotError": "Authorization failed, please retry",
+            "fetchedModelList": "Fetched Models",
+            "modelSelectAllFetched": "Select All Fetched",
+            "modelClearFetched": "Clear Fetched",
+            "antigravityOAuthTitle": "Antigravity Web Authorization",
+            "antigravityConfigHint": "Uses built-in default OAuth app (Gemini CLI). You can override via OCTOPUS_ANTIGRAVITY_CLIENT_ID / CLIENT_SECRET environment variables",
+            "antigravityStartAuth": "Start Antigravity Authorization",
+            "antigravityWaiting": "Waiting for web authorization, finish it in the new window...",
+            "antigravityOpenAgain": "Open Authorization Page Again",
+            "antigravitySuccess": "Authorized, token has been filled automatically",
+            "antigravityRetry": "Retry Authorization",
+            "antigravityAuthFailed": "Antigravity authorization failed",
+            "upstreamIgnoredModels": "Ignored upstream models",
+            "upstreamIgnoredModelsPlaceholder": "Example: gpt-4.1-nano,regex:^sora-.*$, comma separated",
+            "upstreamIgnoredModelsHelp": "Auto sync and manual detection skip these new models. Exact names and regex: rules are supported."
+        },
+        "models": {
+            "selectAll": "Select All",
+            "deselectAll": "Deselect All",
+            "test": "Test",
+            "testSelected": "Test Selected",
+            "testing": "Testing...",
+            "testPassed": "Passed",
+            "testFailed": "Failed",
+            "noModels": "No models",
+            "selectedCount": "{count} selected",
+            "testSummary": "Test completed: {total} models, {passed} passed",
+            "upstreamUpdateTitle": "Upstream model updates",
+            "upstreamUpdateDescription": "Detect upstream model changes. New models can be appended; removed models require manual confirmation.",
+            "upstreamDetect": "Detect updates",
+            "upstreamDetectDone": "Detection complete: {add} added, {remove} removed",
+            "upstreamPendingAdd": "{count} to add",
+            "upstreamPendingRemove": "{count} to remove",
+            "upstreamApplyAdd": "Apply additions",
+            "upstreamApplyRemove": "Apply removals",
+            "upstreamApplyAddDone": "Added models applied",
+            "upstreamApplyRemoveDone": "Removed models applied",
+            "modelProtocolDefault": "Default protocol",
+            "modelProtocolOpenAIChat": "OpenAI-compatible Chat",
+            "modelProtocolOpenAIResponse": "OpenAI Responses",
+            "modelProtocolAnthropic": "Anthropic Messages",
+            "modelProtocolGemini": "Gemini",
+            "modelProtocolVolcengine": "Volcengine Responses",
+            "modelProtocolSaved": "Model protocol saved",
+            "modelProtocolDetect": "Detect protocol",
+            "modelProtocolDetecting": "Detecting",
+            "modelProtocolDetectDone": "Detected protocols for {count} models",
+            "modelProtocolApplyRecommended": "Apply recommendations",
+            "modelProtocolApplyDone": "Applied {count} protocol recommendations",
+            "modelProtocolRecommended": "Recommended",
+            "modelProtocolProbeSummary": "Protocols {passed}/{total}",
+            "modelProtocolNoRecommendation": "No recommendation"
         }
+    },
+    "doc": {
+        "title": "API Usage Docs",
+        "baseUrl": "API Base URL",
+        "apiType": "API Type",
+        "typeOpenAIChat": "OpenAI Chat (/v1/chat/completions)",
+        "typeOpenAIResponses": "OpenAI Responses (/v1/responses)",
+        "typeAnthropic": "Anthropic (/v1/messages)",
+        "apiKey": "API Key",
+        "apiKeyPlaceholder": "Select API key",
+        "group": "Group",
+        "groupPlaceholder": "Select group name",
+        "curlCode": "curl Example",
+        "copy": "Copy",
+        "copied": "Copied",
+        "endpoints": "Endpoints",
+        "endpointOpenAIChat": "OpenAI Chat format",
+        "endpointOpenAIResponses": "OpenAI Responses format",
+        "endpointAnthropic": "Anthropic Messages format",
+        "endpointEmbeddings": "Embeddings format",
+        "baseUrlTip": "Go to global settings",
+        "groupNameRule": "Group names containing spaces or colons (: / ：) cannot be used in \"channel:model\" mode",
+        "tabCurl": "curl",
+        "tabCCSwitch": "CC Switch",
+        "ccswitchCliTool": "CLI Tool",
+        "ccswitchName": "Name",
+        "ccswitchNamePlaceholder": "e.g. My Claude",
+        "ccswitchMainModel": "Main Model",
+        "ccswitchHaikuModel": "Haiku Model",
+        "ccswitchSonnetModel": "Sonnet Model",
+        "ccswitchOpusModel": "Opus Model",
+        "ccswitchImport": "Import to CC Switch"
     }
 }

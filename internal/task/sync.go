@@ -8,9 +8,7 @@ import (
 	"github.com/bestruirui/octopus/internal/helper"
 	"github.com/bestruirui/octopus/internal/model"
 	"github.com/bestruirui/octopus/internal/op"
-	"github.com/bestruirui/octopus/internal/utils/diff"
 	"github.com/bestruirui/octopus/internal/utils/log"
-	"github.com/bestruirui/octopus/internal/utils/xstrings"
 )
 
 var lastSyncModelsTime = time.Now()
@@ -40,8 +38,8 @@ func SyncModelsTask() {
 			log.Warnf("failed to fetch models for channel %s: %v", channel.Name, err)
 			continue
 		}
-		oldModels := xstrings.SplitTrimCompact(",", channel.Model)
-		newModels := xstrings.TrimCompact(fetchModels)
+		oldModels := helper.ChannelModelNames(channel)
+		newModels := helper.NormalizeModelNames(fetchModels)
 		for _, m := range newModels {
 			m = strings.TrimSpace(m)
 			if m == "" {
@@ -54,31 +52,41 @@ func SyncModelsTask() {
 			seenTotalNewModels[m] = struct{}{}
 			totalNewModels = append(totalNewModels, m)
 		}
-		deletedModels, addedModels := diff.Diff(oldModels, newModels)
-		if len(deletedModels) > 0 || len(addedModels) > 0 {
-			fetchModelStr := strings.Join(newModels, ",")
-			if _, err := op.ChannelUpdate(&model.ChannelUpdateRequest{
-				ID:    channel.ID,
-				Model: &fetchModelStr,
-			}, ctx); err != nil {
-				log.Errorf("failed to update channel %s: %v", channel.Name, err)
-				continue
-			}
-		}
-		// 批量删除消失的模型对应的 GroupItem
-		if len(deletedModels) > 0 {
-			log.Infof("deleted channel %s models: %v", channel.Name, deletedModels)
-			keys := make([]model.GroupIDAndLLMName, len(deletedModels))
-			for i, m := range deletedModels {
-				keys[i] = model.GroupIDAndLLMName{ChannelID: channel.ID, ModelName: m}
-			}
-			if err := op.GroupItemBatchDelByChannelAndModels(keys, ctx); err != nil {
-				log.Errorf("failed to batch delete group items for channel %s: %v", channel.Name, err)
+		addedModels, removedModels := helper.CollectPendingUpstreamModelChanges(channel, newModels)
+		now := time.Now().Unix()
+		nextDetected := addedModels
+		modelChanged := false
+		if len(addedModels) > 0 {
+			// AutoSync 只自动追加新增模型，不自动删除上游已消失模型。
+			// 这样比全量覆盖更安全，人工别名和临时可用模型不会被定时任务误删。
+			mergedModels := helper.MergeModelNames(oldModels, addedModels)
+			if strings.Join(mergedModels, ",") != strings.Join(oldModels, ",") {
+				modelChanged = true
+				channel.Model = strings.Join(mergedModels, ",")
+				nextDetected = []string{}
 			}
 		}
 
+		updateReq := &model.ChannelUpdateRequest{
+			ID:                                    channel.ID,
+			UpstreamModelUpdateLastCheckTime:      &now,
+			UpstreamModelUpdateLastDetectedModels: &nextDetected,
+			UpstreamModelUpdateLastRemovedModels:  &removedModels,
+		}
+		if modelChanged {
+			fetchModelStr := channel.Model
+			updateReq.Model = &fetchModelStr
+		}
+		if _, err := op.ChannelUpdate(updateReq, ctx); err != nil {
+			log.Errorf("failed to update channel %s: %v", channel.Name, err)
+			continue
+		}
+		if len(removedModels) > 0 {
+			log.Infof("channel %s upstream removed models detected, waiting for manual apply: %v", channel.Name, removedModels)
+		}
+
 		// 自动分组
-		if len(newModels) > 0 {
+		if modelChanged {
 			helper.ChannelAutoGroup(&channel, ctx)
 		}
 	}
@@ -92,7 +100,7 @@ func SyncModelsTask() {
 		llmPriceNames = append(llmPriceNames, price.Name)
 	}
 
-	deletedNorm, addedNorm := diff.Diff(llmPriceNames, totalNewModels)
+	deletedNorm, addedNorm := helper.SubtractModelNames(llmPriceNames, totalNewModels), helper.SubtractModelNames(totalNewModels, llmPriceNames)
 	if len(deletedNorm) > 0 {
 		if err := helper.LLMPriceDeleteFromDBWithNoPrice(deletedNorm, ctx); err != nil {
 			log.Errorf("failed to batch delete models price: %v", err)

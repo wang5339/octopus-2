@@ -162,6 +162,25 @@ html.dark,
     -ms-overflow-style: none;
   }
 
+  .dialog-model-scrollbar {
+    scrollbar-width: thin;
+    -ms-overflow-style: auto;
+  }
+
+  .dialog-model-scrollbar::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  .dialog-model-scrollbar::-webkit-scrollbar-thumb {
+    background: color-mix(in oklab, var(--muted-foreground) 55%, transparent);
+    border-radius: 9999px;
+  }
+
+  .dialog-model-scrollbar::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
   body {
     @apply bg-background text-foreground;
     isolation: isolate;

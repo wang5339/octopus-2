@@ -6,6 +6,7 @@ import { LogCard } from './Item';
 import { Loader2 } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import { VirtualizedGrid } from '@/components/common/VirtualizedGrid';
+import { useSettingStore } from '@/stores/setting';
 
 /**
  * 日志页面组件
@@ -15,7 +16,8 @@ import { VirtualizedGrid } from '@/components/common/VirtualizedGrid';
  */
 export function Log() {
     const t = useTranslations('log');
-    const { logs, hasMore, isLoading, isLoadingMore, loadMore } = useLogs({ pageSize: 10 });
+    const logPageSize = useSettingStore((s) => s.logPageSize);
+    const { logs, hasMore, isLoading, isLoadingMore, loadMore } = useLogs({ pageSize: logPageSize });
 
     const canLoadMore = hasMore && !isLoading && !isLoadingMore && logs.length > 0;
     const handleReachEnd = useCallback(() => {

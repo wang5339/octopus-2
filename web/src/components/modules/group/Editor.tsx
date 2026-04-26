@@ -261,6 +261,7 @@ export function GroupEditor({
     const [removingIds, setRemovingIds] = useState<Set<string>>(new Set());
 
     const groupKey = normalizeKey(groupName);
+    const invalidGroupName = /[:：\s]/.test(groupName.trim());
     const regexKey = matchRegex.trim();
 
     const { matchedModelChannels, regexError } = useMemo(() => {
@@ -329,7 +330,7 @@ export function GroupEditor({
         setRemovingIds(new Set());
     }, []);
 
-    const isValid = groupKey.length > 0 && selectedMembers.length > 0 && !regexError;
+    const isValid = groupKey.length > 0 && selectedMembers.length > 0 && !regexError && !invalidGroupName;
 
     const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
         event.preventDefault();
@@ -358,11 +359,13 @@ export function GroupEditor({
                                 onChange={(e) => setGroupName(e.target.value)}
                                 className="rounded-xl"
                             />
+                            {invalidGroupName && (
+                                <p className="text-xs text-destructive mt-1">{t('form.nameRule')}</p>
+                            )}
                         </Field>
                         <Field>
                             <FieldLabel htmlFor="group-match-regex">{t('form.matchRegex')}</FieldLabel>
                             <Input
-                                id="group-match-regex"
                                 value={matchRegex}
                                 onChange={(e) => setMatchRegex(e.target.value)}
                                 className="rounded-xl"

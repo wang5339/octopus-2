@@ -1,15 +1,21 @@
 "use client"
 
+import { useState } from "react"
 import { motion } from "motion/react"
 import { cn } from "@/lib/utils"
 import { useNavStore, type NavItem } from "@/components/modules/navbar"
 import { ROUTES } from "@/route/config"
 import { usePreload } from "@/route/use-preload"
 import { ENTRANCE_VARIANTS } from "@/lib/animations/fluid-transitions"
+import { BookOpen } from "lucide-react"
+import { DocModal } from "./DocModal"
+import { useTranslations } from "next-intl"
 
 export function NavBar() {
     const { activeItem, setActiveItem } = useNavStore()
     const { preload } = usePreload()
+    const [isDocOpen, setIsDocOpen] = useState(false)
+    const t = useTranslations('navbar')
 
     return (
         <div className="relative z-50 md:min-h-screen">
@@ -62,7 +68,37 @@ export function NavBar() {
                         </motion.button>
                     )
                 })}
+
+                {/* 分隔线 */}
+                <div className="w-px h-6 md:h-px md:w-6 bg-sidebar-border/50 mx-auto" />
+
+                {/* 文档按钮 */}
+                <motion.button
+                    type="button"
+                    onClick={() => setIsDocOpen(true)}
+                    className={cn(
+                        "relative p-2 md:p-3 rounded-2xl z-20",
+                        "text-sidebar-foreground/60 hover:bg-sidebar-accent"
+                    )}
+                    title={t('doc')}
+                    initial={{ opacity: 0, scale: 0.8 }}
+                    animate={{
+                        opacity: 1,
+                        scale: 1,
+                        transition: { delay: ROUTES.length * 0.05 + 0.1, duration: 0.3 }
+                    }}
+                    whileHover={{ scale: 1.1, zIndex: 30 }}
+                    whileTap={{ scale: 0.95 }}
+                >
+                    <BookOpen strokeWidth={2} className="h-5 w-5" />
+                </motion.button>
             </motion.nav>
+
+            <DocModal
+                isOpen={isDocOpen}
+                onClose={() => setIsDocOpen(false)}
+                onGoSetting={() => setActiveItem('setting')}
+            />
         </div>
     )
 }

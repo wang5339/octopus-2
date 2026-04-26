@@ -1,6 +1,7 @@
 'use client';
 
 import { useChannelList } from '@/api/endpoints/channel';
+import { useStatsGroup, type StatsGroupFormatted } from '@/api/endpoints/stats';
 import { useMemo } from 'react';
 import { useTranslations } from 'next-intl';
 import { TrendingUp } from 'lucide-react';
@@ -11,6 +12,7 @@ type ChannelData = NonNullable<ReturnType<typeof useChannelList>['data']>[number
 
 export function Rank() {
     const { data: channelData } = useChannelList();
+    const { data: groupStats } = useStatsGroup();
     const t = useTranslations('home.rank');
     const rankSortMode = useHomeViewStore((state) => state.rankSortMode);
     const setRankSortMode = useHomeViewStore((state) => state.setRankSortMode);
@@ -29,6 +31,11 @@ export function Rank() {
         if (!channelData) return [];
         return [...channelData].sort((a, b) => b.formatted.total_token.raw - a.formatted.total_token.raw);
     }, [channelData]);
+
+    const rankedByModel = useMemo<StatsGroupFormatted[]>(() => {
+        if (!groupStats) return [];
+        return [...groupStats].sort((a, b) => b.total_token.raw - a.total_token.raw);
+    }, [groupStats]);
 
     const getMedalEmoji = (rank: number): string => {
         switch (rank) {
@@ -120,6 +127,49 @@ export function Rank() {
         );
     };
 
+    const renderModelList = (groups: StatsGroupFormatted[]) => {
+        if (groups.length === 0) {
+            return (
+                <div className="flex flex-col items-center justify-center py-8 text-muted-foreground">
+                    <TrendingUp className="w-12 h-12 mb-3 opacity-30" />
+                    <p className="text-sm">{t('noData')}</p>
+                </div>
+            );
+        }
+        return (
+            <div className="space-y-3 max-h-[300px] overflow-y-auto">
+                {groups.map((group, index) => {
+                    const rank = index + 1;
+                    const medal = getMedalEmoji(rank);
+
+                    return (
+                        <div
+                            key={group.group_name}
+                            className="flex items-center gap-3 p-3 rounded-2xl hover:bg-accent/5 transition-colors"
+                        >
+                            <div className="w-8 h-8 rounded-lg flex items-center justify-center font-bold text-lg shrink-0">
+                                {medal || rank}
+                            </div>
+
+                            <div className="flex-1 min-w-0">
+                                <p className="font-medium text-sm truncate">{group.group_name}</p>
+                            </div>
+
+                            <div className="flex items-center gap-1 text-right shrink-0">
+                                <span className="font-semibold text-base">
+                                    {group.total_token.formatted.value}
+                                    <span className="text-xs text-muted-foreground">
+                                        {group.total_token.formatted.unit}
+                                    </span>
+                                </span>
+                            </div>
+                        </div>
+                    );
+                })}
+            </div>
+        );
+    };
+
     return (
         <div className="rounded-3xl bg-card text-card-foreground border-card-border border p-4">
             <Tabs value={rankSortMode} onValueChange={(value) => setRankSortMode(value as RankSortMode)}>
@@ -129,6 +179,7 @@ export function Rank() {
                         <TabsTrigger value="cost">{t('sortByCost')}</TabsTrigger>
                         <TabsTrigger value="count">{t('sortByCount')}</TabsTrigger>
                         <TabsTrigger value="tokens">{t('sortByTokens')}</TabsTrigger>
+                        <TabsTrigger value="model">{t('sortByModel')}</TabsTrigger>
                     </TabsList>
                 </div>
                 <TabsContents>
@@ -140,6 +191,9 @@ export function Rank() {
                     </TabsContent>
                     <TabsContent value="tokens">
                         {renderList(rankedByTokens, 'tokens')}
+                    </TabsContent>
+                    <TabsContent value="model">
+                        {renderModelList(rankedByModel)}
                     </TabsContent>
                 </TabsContents>
             </Tabs>

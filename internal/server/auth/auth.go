@@ -10,18 +10,18 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 )
 
-func GenerateJWTToken(expiresMin int) (string, string, error) {
+func GenerateJWTToken(expiresSec int) (string, string, error) {
 	now := time.Now()
 	claims := &jwt.RegisteredClaims{
 		IssuedAt:  jwt.NewNumericDate(now),
 		NotBefore: jwt.NewNumericDate(now),
 		Issuer:    conf.APP_NAME,
 	}
-	if expiresMin == 0 {
+	if expiresSec == 0 {
 		claims.ExpiresAt = jwt.NewNumericDate(now.Add(time.Duration(15) * time.Minute))
-	} else if expiresMin > 0 {
-		claims.ExpiresAt = jwt.NewNumericDate(now.Add(time.Duration(expiresMin) * time.Minute))
-	} else if expiresMin == -1 {
+	} else if expiresSec > 0 {
+		claims.ExpiresAt = jwt.NewNumericDate(now.Add(time.Duration(expiresSec) * time.Second))
+	} else if expiresSec == -1 {
 		claims.ExpiresAt = jwt.NewNumericDate(now.Add(time.Duration(30) * 24 * time.Hour))
 	}
 	user := op.UserGet()

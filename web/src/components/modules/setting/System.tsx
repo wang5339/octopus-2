@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslations } from 'next-intl';
-import { Monitor, Globe, Clock, Shield, HelpCircle, X } from 'lucide-react';
+import { Monitor, Globe, Clock, Shield, HelpCircle, X, Link } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { useSettingList, useSetSetting, SettingKey } from '@/api/endpoints/setting';
@@ -18,27 +18,32 @@ export function SettingSystem() {
     const [statsSaveInterval, setStatsSaveInterval] = useState('');
     const [corsAllowOrigins, setCorsAllowOrigins] = useState('');
     const [corsInputValue, setCorsInputValue] = useState('');
+    const [apiBaseUrl, setApiBaseUrl] = useState('');
 
     const initialProxyUrl = useRef('');
     const initialStatsSaveInterval = useRef('');
     const initialCorsAllowOrigins = useRef('');
+    const initialApiBaseUrl = useRef('');
+    const initialized = useRef(false);
 
     useEffect(() => {
         if (settings) {
             const proxy = settings.find(s => s.key === SettingKey.ProxyURL);
             const interval = settings.find(s => s.key === SettingKey.StatsSaveInterval);
             const cors = settings.find(s => s.key === SettingKey.CORSAllowOrigins);
-            if (proxy) {
-                queueMicrotask(() => setProxyUrl(proxy.value));
-                initialProxyUrl.current = proxy.value;
-            }
-            if (interval) {
-                queueMicrotask(() => setStatsSaveInterval(interval.value));
-                initialStatsSaveInterval.current = interval.value;
-            }
-            if (cors) {
-                queueMicrotask(() => setCorsAllowOrigins(cors.value));
-                initialCorsAllowOrigins.current = cors.value;
+            const apiUrl = settings.find(s => s.key === SettingKey.ApiBaseUrl);
+
+            if (!initialized.current) {
+                initialized.current = true;
+                if (proxy) { queueMicrotask(() => setProxyUrl(proxy.value)); initialProxyUrl.current = proxy.value; }
+                if (interval) { queueMicrotask(() => setStatsSaveInterval(interval.value)); initialStatsSaveInterval.current = interval.value; }
+                if (cors) { queueMicrotask(() => setCorsAllowOrigins(cors.value)); initialCorsAllowOrigins.current = cors.value; }
+                if (apiUrl) { queueMicrotask(() => setApiBaseUrl(apiUrl.value)); initialApiBaseUrl.current = apiUrl.value; }
+            } else {
+                if (proxy) initialProxyUrl.current = proxy.value;
+                if (interval) initialStatsSaveInterval.current = interval.value;
+                if (cors) initialCorsAllowOrigins.current = cors.value;
+                if (apiUrl) initialApiBaseUrl.current = apiUrl.value;
             }
         }
     }, [settings]);
@@ -55,6 +60,8 @@ export function SettingSystem() {
                     initialStatsSaveInterval.current = value;
                 } else if (key === SettingKey.CORSAllowOrigins) {
                     initialCorsAllowOrigins.current = value;
+                } else if (key === SettingKey.ApiBaseUrl) {
+                    initialApiBaseUrl.current = value;
                 }
             }
         });
@@ -120,6 +127,31 @@ export function SettingSystem() {
                 <Monitor className="h-5 w-5" />
                 {t('system')}
             </h2>
+
+            {/* 系统 API 地址 */}
+            <div className="flex items-center justify-between gap-4">
+                <div className="flex items-center gap-3">
+                    <Link className="h-5 w-5 text-muted-foreground" />
+                    <span className="text-sm font-medium">{t('apiBaseUrl.label')}</span>
+                    <TooltipProvider>
+                        <Tooltip>
+                            <TooltipTrigger asChild>
+                                <HelpCircle className="size-4 text-muted-foreground cursor-help" />
+                            </TooltipTrigger>
+                            <TooltipContent>
+                                {t('apiBaseUrl.hint')}
+                            </TooltipContent>
+                        </Tooltip>
+                    </TooltipProvider>
+                </div>
+                <Input
+                    value={apiBaseUrl}
+                    onChange={(e) => setApiBaseUrl(e.target.value)}
+                    onBlur={() => handleSave(SettingKey.ApiBaseUrl, apiBaseUrl, initialApiBaseUrl.current)}
+                    placeholder={t('apiBaseUrl.placeholder')}
+                    className="w-64 rounded-xl"
+                />
+            </div>
 
             {/* 代理地址 */}
             <div className="flex items-center justify-between gap-4">

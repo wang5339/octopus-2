@@ -49,3 +49,19 @@ func SetSticky(apiKeyID int, requestModel string, channelID, keyID int) {
 		Timestamp:    time.Now(),
 	})
 }
+
+// CleanupExpiredSessions 清理过期的会话记录
+// 应该定期调用（如每小时一次）以防止内存泄漏
+func CleanupExpiredSessions(maxAge time.Duration) int {
+	count := 0
+	now := time.Now()
+	globalSession.Range(func(key, value interface{}) bool {
+		entry := value.(*SessionEntry)
+		if now.Sub(entry.Timestamp) > maxAge {
+			globalSession.Delete(key)
+			count++
+		}
+		return true
+	})
+	return count
+}

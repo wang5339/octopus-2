@@ -63,6 +63,17 @@ export interface StatsAPIKey extends StatsMetrics {
 export interface StatsAPIKeyFormatted extends StatsMetricsFormatted {
     api_key_id: number;
 }
+
+/**
+ * 分组统计数据
+ */
+export interface StatsGroup extends StatsMetrics {
+    group_name: string;
+}
+
+export interface StatsGroupFormatted extends StatsMetricsFormatted {
+    group_name: string;
+}
 /**
  * 获取今日统计数据 Hook
  */
@@ -167,6 +178,33 @@ export function useStatsAPIKey() {
         },
         select: (data) => data.map((item): StatsAPIKeyFormatted => ({
             api_key_id: item.api_key_id,
+            input_token: formatCount(item.input_token),
+            output_token: formatCount(item.output_token),
+            total_token: formatCount(item.input_token + item.output_token),
+            input_cost: formatMoney(item.input_cost),
+            output_cost: formatMoney(item.output_cost),
+            total_cost: formatMoney(item.input_cost + item.output_cost),
+            wait_time: formatTime(item.wait_time),
+            request_success: formatCount(item.request_success),
+            request_failed: formatCount(item.request_failed),
+            request_count: formatCount(item.request_success + item.request_failed),
+        })),
+        refetchInterval: 30000,
+        refetchOnMount: 'always',
+    });
+}
+
+/**
+ * 获取分组统计数据列表 Hook
+ */
+export function useStatsGroup() {
+    return useQuery({
+        queryKey: ['stats', 'group'],
+        queryFn: async () => {
+            return apiClient.get<StatsGroup[]>('/api/v1/stats/group');
+        },
+        select: (data) => (data ?? []).map((item): StatsGroupFormatted => ({
+            group_name: item.group_name,
             input_token: formatCount(item.input_token),
             output_token: formatCount(item.output_token),
             total_token: formatCount(item.input_token + item.output_token),

@@ -64,6 +64,9 @@ func DBExportAll(ctx context.Context, includeLogs, includeStats bool) (*model.DB
 		if err := conn.Find(&d.StatsAPIKey).Error; err != nil {
 			return nil, fmt.Errorf("export stats_api_key: %w", err)
 		}
+		if err := conn.Find(&d.StatsGroup).Error; err != nil {
+			return nil, fmt.Errorf("export stats_group: %w", err)
+		}
 	}
 
 	if includeLogs {
@@ -155,6 +158,11 @@ func DBImportIncremental(ctx context.Context, dump *model.DBDump) (*model.DBImpo
 				return fmt.Errorf("import stats_api_key: %w", err)
 			} else {
 				res.RowsAffected["stats_api_key"] = n
+			}
+			if n, err := createUpsertAll(tx, dump.StatsGroup, []clause.Column{{Name: "group_name"}}); err != nil {
+				return fmt.Errorf("import stats_group: %w", err)
+			} else {
+				res.RowsAffected["stats_group"] = n
 			}
 		}
 

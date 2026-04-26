@@ -1,4 +1,5 @@
-import { AutoGroupType, ChannelType, type Channel, useFetchModel } from '@/api/endpoints/channel';
+import { AutoGroupType, ChannelType, type Channel, useFetchModel, useTestChannelModelsByConfig, type TestModelResult, useCopilotRequestDeviceCode, useCopilotPollToken, useAntigravityOAuthStart, useAntigravityOAuthPoll } from '@/api/endpoints/channel';
+import { useProviders } from '@/api/endpoints/providers';
 import {
     Select,
     SelectContent,
@@ -11,9 +12,11 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { toast } from '@/components/common/Toast';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/animate-ui/components/animate/tooltip';
 import { useTranslations } from 'next-intl';
-import { useEffect, useRef, useState } from 'react';
-import { RefreshCw, X, Plus } from 'lucide-react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { X, Plus, HelpCircle, CheckCircle2, XCircle, Loader2, Info, Copy, ExternalLink, Check, Search } from 'lucide-react';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 
 export interface ChannelKeyFormItem {
     id?: number;
@@ -40,6 +43,7 @@ export interface ChannelFormData {
     auto_sync: boolean;
     auto_group: AutoGroupType;
     match_regex: string;
+    upstream_model_update_ignored_models: string;
 }
 
 export interface ChannelFormProps {
@@ -52,6 +56,7 @@ export interface ChannelFormProps {
     onCancel?: () => void;
     cancelText?: string;
     idPrefix?: string;
+    channelId?: number;
 }
 
 import {
@@ -73,6 +78,15 @@ export function ChannelForm({
     idPrefix = 'channel',
 }: ChannelFormProps) {
     const t = useTranslations('channel.form');
+    const tModels = useTranslations('channel.models');
+
+    // Fetch providers for auto-fill base_url
+    const { data: providers } = useProviders();
+
+    // Test state
+    const testByConfig = useTestChannelModelsByConfig();
+    const [isTesting, setIsTesting] = useState(false);
+    const [testResults, setTestResults] = useState<Map<string, TestModelResult>>(new Map());
 
     // Ensure the form always shows at least 1 row for base_urls / keys / custom_header.
     // This avoids "empty list" UI and also keeps URL + APIKEY layout consistent.
@@ -90,14 +104,198 @@ export function ChannelForm({
         }
     }, [formData, onFormDataChange]);
 
+    // Auto-fill base_url when type changes and base_url is empty
+    useEffect(() => {
+        if (!providers) return;
+
+        const provider = providers.find((p) => p.channel_type === formData.type);
+        // Only auto-fill if there's exactly one base_url and it's empty
+        if (provider && formData.base_urls.length === 1 && formData.base_urls[0].url === '') {
+            onFormDataChange({
+                ...formData,
+                base_urls: [{ url: provider.base_url, delay: 0 }],
+            });
+        }
+    }, [formData, onFormDataChange, providers]);
+
     const autoModels = formData.model
         ? formData.model.split(',').map((m) => m.trim()).filter(Boolean)
         : [];
     const customModels = formData.custom_model
         ? formData.custom_model.split(',').map((m) => m.trim()).filter(Boolean)
         : [];
+    const [fetchedModels, setFetchedModels] = useState<string[]>([]);
     const [inputValue, setInputValue] = useState('');
     const inputRef = useRef<HTMLInputElement>(null);
+    const [showModelSelectDialog, setShowModelSelectDialog] = useState(false);
+    const [dialogSelectedModels, setDialogSelectedModels] = useState<Set<string>>(new Set());
+
+    // ---- GitHub Copilot Device Flow ----
+    const copilotDeviceCodeRef = useRef('');
+    const copilotPollIntervalRef = useRef(5);
+    const copilotTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const [copilotStatus, setCopilotStatus] = useState<
+        'idle' | 'loading' | 'waiting' | 'authorized' | 'expired' | 'denied' | 'error'
+    >('idle');
+    const [copilotUserCode, setCopilotUserCode] = useState('');
+    const [copilotVerificationUri, setCopilotVerificationUri] = useState('');
+
+    // Keep stable refs to avoid stale closures in async poll callbacks
+    const formDataRef = useRef(formData);
+    useEffect(() => { formDataRef.current = formData; }, [formData]);
+    const onFormDataChangeRef = useRef(onFormDataChange);
+    useEffect(() => { onFormDataChangeRef.current = onFormDataChange; }, [onFormDataChange]);
+
+    const copilotRequestDeviceCode = useCopilotRequestDeviceCode();
+    const copilotPollToken = useCopilotPollToken();
+
+    // ---- Antigravity OAuth Web Flow ----
+    const antigravityStateRef = useRef('');
+    const antigravityTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const [antigravityStatus, setAntigravityStatus] = useState<'idle' | 'loading' | 'waiting' | 'authorized' | 'error'>('idle');
+    const [antigravityError, setAntigravityError] = useState('');
+    const antigravityOAuthStart = useAntigravityOAuthStart();
+    const antigravityOAuthPoll = useAntigravityOAuthPoll();
+
+    // Cleanup timer on unmount
+    useEffect(() => {
+        return () => {
+            if (copilotTimerRef.current) clearTimeout(copilotTimerRef.current);
+            if (antigravityTimerRef.current) clearTimeout(antigravityTimerRef.current);
+        };
+    }, []);
+
+    // Reset device flow when switching away from GitHub Copilot type
+    useEffect(() => {
+        if (formData.type !== ChannelType.GithubCopilot) {
+            if (copilotTimerRef.current) {
+                clearTimeout(copilotTimerRef.current);
+                copilotTimerRef.current = null;
+            }
+            setCopilotStatus('idle');
+            copilotDeviceCodeRef.current = '';
+        }
+    }, [formData.type]);
+
+    useEffect(() => {
+        if (formData.type !== ChannelType.Antigravity) {
+            if (antigravityTimerRef.current) {
+                clearTimeout(antigravityTimerRef.current);
+                antigravityTimerRef.current = null;
+            }
+            antigravityStateRef.current = '';
+            setAntigravityStatus('idle');
+            setAntigravityError('');
+        }
+    }, [formData.type]);
+
+    const startPollLoop = useCallback(() => {
+        const poll = async () => {
+            if (!copilotDeviceCodeRef.current) return;
+            try {
+                const result = await copilotPollToken.mutateAsync(copilotDeviceCodeRef.current);
+                if (result.access_token) {
+                    setCopilotStatus('authorized');
+                    onFormDataChangeRef.current({
+                        ...formDataRef.current,
+                        base_urls: [{ url: 'https://api.githubcopilot.com', delay: 0 }],
+                        keys: [{ enabled: true, channel_key: result.access_token }],
+                    });
+                    return; // Stop polling
+                }
+                if (result.error === 'slow_down') {
+                    copilotPollIntervalRef.current += 5;
+                } else if (result.error === 'expired_token') {
+                    setCopilotStatus('expired');
+                    return;
+                } else if (result.error === 'access_denied') {
+                    setCopilotStatus('denied');
+                    return;
+                } else if (result.error && result.error !== 'authorization_pending') {
+                    setCopilotStatus('error');
+                    return;
+                }
+            } catch {
+                // network error, retry
+            }
+            copilotTimerRef.current = setTimeout(poll, copilotPollIntervalRef.current * 1000);
+        };
+        copilotTimerRef.current = setTimeout(poll, copilotPollIntervalRef.current * 1000);
+    }, [copilotPollToken]);
+
+    const handleCopilotStartAuth = async () => {
+        if (copilotTimerRef.current) {
+            clearTimeout(copilotTimerRef.current);
+            copilotTimerRef.current = null;
+        }
+        copilotDeviceCodeRef.current = '';
+        copilotPollIntervalRef.current = 5;
+        setCopilotStatus('loading');
+        try {
+            const result = await copilotRequestDeviceCode.mutateAsync();
+            copilotDeviceCodeRef.current = result.device_code;
+            copilotPollIntervalRef.current = result.interval || 5;
+            setCopilotUserCode(result.user_code);
+            setCopilotVerificationUri(result.verification_uri);
+            setCopilotStatus('waiting');
+            startPollLoop();
+        } catch {
+            setCopilotStatus('error');
+            toast.error(t('copilotError'));
+        }
+    };
+    // ---- End GitHub Copilot Device Flow ----
+
+    const startAntigravityPollLoop = useCallback(() => {
+        const poll = async () => {
+            if (!antigravityStateRef.current) return;
+            try {
+                const result = await antigravityOAuthPoll.mutateAsync(antigravityStateRef.current);
+                if (result.status === 'authorized' && result.access_token) {
+                    setAntigravityStatus('authorized');
+                    const currentBaseUrls = formDataRef.current.base_urls?.filter((u) => u.url.trim()) ?? [];
+                    onFormDataChangeRef.current({
+                        ...formDataRef.current,
+                        base_urls: currentBaseUrls.length > 0 ? currentBaseUrls : [{ url: 'https://cloudcode-pa.googleapis.com', delay: 0 }],
+                        keys: [{ enabled: true, channel_key: result.access_token }],
+                    });
+                    return;
+                }
+                if (result.status === 'failed') {
+                    setAntigravityStatus('error');
+                    setAntigravityError(result.error || t('antigravityAuthFailed'));
+                    return;
+                }
+            } catch {
+                // keep polling on temporary failures
+            }
+            antigravityTimerRef.current = setTimeout(poll, 2000);
+        };
+        antigravityTimerRef.current = setTimeout(poll, 2000);
+    }, [antigravityOAuthPoll, t]);
+
+    const handleAntigravityStartAuth = async () => {
+        if (antigravityTimerRef.current) {
+            clearTimeout(antigravityTimerRef.current);
+            antigravityTimerRef.current = null;
+        }
+        antigravityStateRef.current = '';
+        setAntigravityError('');
+        setAntigravityStatus('loading');
+        try {
+            const result = await antigravityOAuthStart.mutateAsync();
+            antigravityStateRef.current = result.state;
+            setAntigravityStatus('waiting');
+            window.open(result.auth_url, '_blank', 'noopener,noreferrer');
+            startAntigravityPollLoop();
+        } catch (error) {
+            const message = error instanceof Error ? error.message : t('antigravityAuthFailed');
+            setAntigravityStatus('error');
+            setAntigravityError(message);
+            toast.error(t('antigravityAuthFailed'), { description: message });
+        }
+    };
+    // ---- End Antigravity OAuth Web Flow ----
 
     const fetchModel = useFetchModel();
 
@@ -111,36 +309,16 @@ export function ChannelForm({
         onFormDataChange({ ...formData, model, custom_model });
     };
 
-    const handleRefreshModels = async () => {
-        if (!formData.base_urls?.[0]?.url || !effectiveKey) return;
-        fetchModel.mutate(
-            {
-                type: formData.type,
-                base_urls: formData.base_urls,
-                keys: formData.keys
-                    .filter((k) => k.channel_key.trim())
-                    .map((k) => ({ enabled: k.enabled, channel_key: k.channel_key.trim() })),
-                proxy: formData.proxy,
-                channel_proxy: formData.channel_proxy?.trim() || null,
-                match_regex: formData.match_regex.trim() || null,
-                custom_header: formData.custom_header?.filter((h) => h.header_key.trim()) || [],
-            },
-            {
-                onSuccess: (data) => {
-                    if (data && data.length > 0) {
-                        const nextAuto = Array.from(new Set([...autoModels, ...data].map((m) => m.trim()).filter(Boolean)));
-                        updateModels(nextAuto, customModels);
-                        toast.success(t('modelRefreshSuccess'));
-                    } else {
-                        toast.warning(t('modelRefreshEmpty'));
-                    }
-                },
-                onError: (error) => {
-                    const errorMessage = error instanceof Error ? error.message : String(error);
-                    toast.error(t('modelRefreshFailed'), { description: errorMessage });
-                },
-            }
-        );
+
+
+
+
+    const handleConfirmModelSelect = () => {
+        const selected = Array.from(dialogSelectedModels);
+        // 从弹框选择的模型按“手动模型”处理，保持视觉样式一致
+        const newCustom = Array.from(new Set([...customModels, ...selected]));
+        updateModels(autoModels, newCustom);
+        setShowModelSelectDialog(false);
     };
 
     const handleAddModel = (model: string) => {
@@ -221,8 +399,89 @@ export function ChannelForm({
         onFormDataChange({ ...formData, custom_header: curr.filter((_, i) => i !== idx) });
     };
 
+    // All models (auto + custom)
+    const allModels = [
+        ...autoModels,
+        ...customModels,
+    ];
+
+    const handleTestModels = async (models: string[]) => {
+        if (models.length === 0 || isTesting) return;
+        const hasBaseUrl = formData.base_urls?.some((u) => u.url.trim());
+        const hasKey = formData.keys?.some((k) => k.channel_key.trim());
+        if (!hasBaseUrl || !hasKey) {
+            toast.warning(t('testNeedBaseUrlAndKey'));
+            return;
+        }
+        setIsTesting(true);
+        try {
+            const results = await testByConfig.mutateAsync({
+                type: formData.type,
+                base_urls: formData.base_urls.filter((u) => u.url.trim()),
+                keys: formData.keys.filter((k) => k.channel_key.trim()).map((k) => ({ enabled: k.enabled, channel_key: k.channel_key.trim() })),
+                proxy: formData.proxy,
+                channel_proxy: formData.channel_proxy?.trim() || null,
+                custom_header: formData.custom_header?.filter((h) => h.header_key.trim()) || [],
+                models,
+            });
+            const map = new Map<string, TestModelResult>();
+            for (const r of results) map.set(r.model, r);
+            setTestResults(map);
+        } catch {
+            toast.error(t('testFailed'));
+        } finally {
+            setIsTesting(false);
+        }
+    };
+
+    const handleTestFirst = () => {
+        if (allModels.length > 0) handleTestModels([allModels[0]]);
+    };
+
+    const handleTestAll = () => {
+        handleTestModels(allModels);
+    };
+
+    // Provider preset quick-select
+    const handleProviderPreset = (providerName: string) => {
+        if (!providers) return;
+        const provider = providers.find((p) => p.name === providerName);
+        if (!provider) return;
+        onFormDataChange({
+            ...formData,
+            type: provider.channel_type as ChannelType,
+            base_urls: [{ url: provider.base_url, delay: 0 }],
+        });
+    };
+
+    const namePlaceholder = (() => {
+        if (!providers) return t('namePlaceholder');
+        const currentUrl = formData.base_urls?.[0]?.url?.trim();
+        const p = providers.find((p) => currentUrl && p.base_url === currentUrl);
+        return p ? `${t('namePlaceholderPrefix')}${p.name}` : t('namePlaceholder');
+    })();
+
     return (
+        <>
         <form onSubmit={onSubmit} className="space-y-4 px-1">
+            {/* Provider 快速预设选择 */}
+            {providers && providers.length > 0 && (
+                <div className="space-y-2">
+                    <label className="text-sm font-medium text-card-foreground">{t('providerPreset')}</label>
+                    <Select onValueChange={handleProviderPreset}>
+                        <SelectTrigger className="rounded-xl w-full border border-border px-4 py-2 text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                            <SelectValue placeholder={t('providerPresetPlaceholder')} />
+                        </SelectTrigger>
+                        <SelectContent className="rounded-xl">
+                            {providers.map((p) => (
+                                <SelectItem key={`${p.name}-${p.channel_type}`} className="rounded-xl" value={p.name}>
+                                    {p.name}
+                                </SelectItem>
+                            ))}
+                        </SelectContent>
+                    </Select>
+                </div>
+            )}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-2">
                     <label htmlFor={`${idPrefix}-name`} className="text-sm font-medium text-card-foreground">
@@ -234,6 +493,7 @@ export function ChannelForm({
                         type="text"
                         value={formData.name}
                         onChange={(event) => onFormDataChange({ ...formData, name: event.target.value })}
+                        placeholder={namePlaceholder}
                         required
                     />
                 </div>
@@ -256,16 +516,198 @@ export function ChannelForm({
                             <SelectItem className='rounded-xl' value={String(ChannelType.Gemini)}>{t('typeGemini')}</SelectItem>
                             <SelectItem className='rounded-xl' value={String(ChannelType.Volcengine)}>{t('typeVolcengine')}</SelectItem>
                             <SelectItem className='rounded-xl' value={String(ChannelType.OpenAIEmbedding)}>{t('typeOpenAIEmbedding')}</SelectItem>
+                            <SelectItem className='rounded-xl' value={String(ChannelType.OpenAIImageGeneration)}>{t('typeOpenAIImageGeneration')}</SelectItem>
+                            <SelectItem className='rounded-xl' value={String(ChannelType.GithubCopilot)}>{t('typeGithubCopilot')}</SelectItem>
+                            <SelectItem className='rounded-xl' value={String(ChannelType.Antigravity)}>{t('typeAntigravity')}</SelectItem>
+                            <SelectItem className='rounded-xl' value={String(ChannelType.Zen)}>{t('typeZen')}</SelectItem>
                         </SelectContent>
                     </Select>
                 </div>
             </div>
 
+            {/* GitHub Copilot Device Flow Panel */}
+            {formData.type === ChannelType.GithubCopilot && (
+                <div className="space-y-3 rounded-xl border border-blue-500/30 bg-blue-500/5 p-4">
+                    <div className="flex items-center gap-2 text-sm font-medium text-blue-700 dark:text-blue-300">
+                        <Info className="h-4 w-4 shrink-0" />
+                        <span>{t('copilotDeviceFlow')}</span>
+                    </div>
+
+                    {copilotStatus === 'idle' && (
+                        <Button
+                            type="button"
+                            onClick={handleCopilotStartAuth}
+                            className="w-full rounded-xl h-11 gap-2 bg-blue-600 hover:bg-blue-700 text-white"
+                        >
+                            {t('copilotStartAuth')}
+                        </Button>
+                    )}
+
+                    {copilotStatus === 'loading' && (
+                        <div className="flex justify-center py-4">
+                            <Loader2 className="h-6 w-6 animate-spin text-blue-500" />
+                        </div>
+                    )}
+
+                    {copilotStatus === 'waiting' && (
+                        <div className="space-y-3">
+                            <p className="text-xs text-muted-foreground">{t('copilotUserCodeHint')}</p>
+                            <div className="flex items-center gap-2">
+                                <div className="flex-1 rounded-xl border-2 border-green-500/50 bg-green-500/10 px-4 py-3 text-center">
+                                    <span className="font-mono text-2xl font-bold tracking-widest text-green-700 dark:text-green-400">
+                                        {copilotUserCode}
+                                    </span>
+                                </div>
+                                <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() => {
+                                        navigator.clipboard.writeText(copilotUserCode);
+                                        toast.success(t('copilotCodeCopied'));
+                                    }}
+                                    className="rounded-xl h-11 w-11 p-0"
+                                    title={t('copilotCodeCopied')}
+                                >
+                                    <Copy className="h-4 w-4" />
+                                </Button>
+                            </div>
+                            <Button
+                                type="button"
+                                variant="outline"
+                                className="w-full rounded-xl h-11 gap-2"
+                                onClick={() => window.open(copilotVerificationUri, '_blank')}
+                            >
+                                <ExternalLink className="h-4 w-4" />
+                                {t('copilotOpenGitHub')}
+                            </Button>
+                            <div className="flex items-center gap-2 text-xs text-muted-foreground pt-1">
+                                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                <span>{t('copilotWaiting')}</span>
+                            </div>
+                        </div>
+                    )}
+
+                    {copilotStatus === 'authorized' && (
+                        <div className="flex items-center gap-2 text-sm text-green-600 dark:text-green-400">
+                            <CheckCircle2 className="h-4 w-4" />
+                            <span>{t('copilotSuccess')}</span>
+                        </div>
+                    )}
+
+                    {(copilotStatus === 'expired' || copilotStatus === 'denied' || copilotStatus === 'error') && (
+                        <div className="space-y-3">
+                            <div className="flex items-center gap-2 text-sm text-destructive">
+                                <XCircle className="h-4 w-4" />
+                                <span>
+                                    {copilotStatus === 'expired'
+                                        ? t('copilotExpired')
+                                        : copilotStatus === 'denied'
+                                          ? t('copilotDenied')
+                                          : t('copilotError')}
+                                </span>
+                            </div>
+                            <Button
+                                type="button"
+                                variant="outline"
+                                className="w-full rounded-xl h-11"
+                                onClick={handleCopilotStartAuth}
+                            >
+                                {t('copilotRetry')}
+                            </Button>
+                        </div>
+                    )}
+                </div>
+            )}
+
+            {/* Antigravity OAuth Web Flow Panel */}
+            {formData.type === ChannelType.Antigravity && (
+                <div className="space-y-3 rounded-xl border border-purple-500/30 bg-purple-500/5 p-4">
+                    <div className="flex items-center gap-2 text-sm font-medium text-purple-700 dark:text-purple-300">
+                        <Info className="h-4 w-4 shrink-0" />
+                        <span>{t('antigravityOAuthTitle')}</span>
+                    </div>
+
+                    {antigravityStatus === 'idle' && (
+                        <>
+                        <p className="text-xs text-muted-foreground">{t('antigravityConfigHint')}</p>
+                        <Button
+                            type="button"
+                            onClick={handleAntigravityStartAuth}
+                            className="w-full rounded-xl h-11 gap-2 bg-purple-600 hover:bg-purple-700 text-white"
+                        >
+                            {t('antigravityStartAuth')}
+                        </Button>
+                        </>
+                    )}
+
+                    {antigravityStatus === 'loading' && (
+                        <div className="flex justify-center py-4">
+                            <Loader2 className="h-6 w-6 animate-spin text-purple-500" />
+                        </div>
+                    )}
+
+                    {antigravityStatus === 'waiting' && (
+                        <div className="space-y-2 text-xs text-muted-foreground">
+                            <div className="flex items-center gap-2">
+                                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                <span>{t('antigravityWaiting')}</span>
+                            </div>
+                            <Button
+                                type="button"
+                                variant="outline"
+                                className="w-full rounded-xl h-10"
+                                onClick={handleAntigravityStartAuth}
+                            >
+                                {t('antigravityOpenAgain')}
+                            </Button>
+                        </div>
+                    )}
+
+                    {antigravityStatus === 'authorized' && (
+                        <div className="flex items-center gap-2 text-sm text-green-600 dark:text-green-400">
+                            <CheckCircle2 className="h-4 w-4" />
+                            <span>{t('antigravitySuccess')}</span>
+                        </div>
+                    )}
+
+                    {antigravityStatus === 'error' && (
+                        <div className="space-y-3">
+                            <div className="flex items-center gap-2 text-sm text-destructive">
+                                <XCircle className="h-4 w-4" />
+                                <span>{antigravityError || t('antigravityAuthFailed')}</span>
+                            </div>
+                            <Button
+                                type="button"
+                                variant="outline"
+                                className="w-full rounded-xl h-11"
+                                onClick={handleAntigravityStartAuth}
+                            >
+                                {t('antigravityRetry')}
+                            </Button>
+                        </div>
+                    )}
+                </div>
+            )}
+
+            {formData.type !== ChannelType.GithubCopilot && formData.type !== ChannelType.Antigravity && (
             <div className="space-y-2">
                 <div className="flex items-center justify-between">
-                    <label className="text-sm font-medium text-card-foreground">
-                        {t('baseUrls')} {formData.base_urls.length > 0 ? `(${formData.base_urls.length})` : ''}
-                    </label>
+                    <div className="flex items-center gap-1">
+                        <label className="text-sm font-medium text-card-foreground">
+                            {t('baseUrls')} {formData.base_urls.length > 0 ? `(${formData.base_urls.length})` : ''}
+                        </label>
+                        <TooltipProvider>
+                            <Tooltip>
+                                <TooltipTrigger asChild>
+                                    <HelpCircle className="size-3.5 text-muted-foreground cursor-help" />
+                                </TooltipTrigger>
+                                <TooltipContent>
+                                    {t('baseUrlTooltip')}
+                                </TooltipContent>
+                            </Tooltip>
+                        </TooltipProvider>
+                    </div>
                     <Button
                         type="button"
                         variant="ghost"
@@ -304,7 +746,9 @@ export function ChannelForm({
                     ))}
                 </div>
             </div>
+            )}
 
+            {formData.type !== ChannelType.GithubCopilot && formData.type !== ChannelType.Antigravity && (
             <div className="space-y-2">
                 <div className="flex items-center justify-between">
                     <label className="text-sm font-medium text-card-foreground">
@@ -321,6 +765,7 @@ export function ChannelForm({
                         {t('add')}
                     </Button>
                 </div>
+
                 <div className="space-y-2">
                     {(formData.keys ?? []).map((k, idx) => (
                         <div key={k.id ?? `new-${idx}`} className="flex items-center gap-2">
@@ -358,23 +803,65 @@ export function ChannelForm({
                     ))}
                 </div>
             </div>
+            )}
 
             <div className="space-y-2">
                 <div className="flex items-center justify-between">
                     <label className="text-sm font-medium text-card-foreground">{t('model')}</label>
-                    <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        onClick={handleRefreshModels}
-                        disabled={!formData.base_urls?.[0]?.url || !effectiveKey || fetchModel.isPending}
-                        className="h-6 px-2 text-xs text-muted-foreground/50 hover:text-muted-foreground hover:bg-transparent"
-                    >
-                        <RefreshCw className={`h-3 w-3 mr-1 ${fetchModel.isPending ? 'animate-spin' : ''}`} />
-                        {t('modelRefresh')}
-                    </Button>
+                    <div className="flex items-center gap-1">
+                        {(effectiveKey && formData.base_urls?.[0]?.url) && (
+                            <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                disabled={fetchModel.isPending}
+                                onClick={() => {
+                                    // 每次打开都按当前已选模型重建预选状态，避免残留历史选择
+                                    setDialogSelectedModels(new Set(fetchedModels.filter((model) => allModels.includes(model))));
+                                    // 立即打开弹框
+                                    setShowModelSelectDialog(true);
+                                    // 如果还没有数据，则在后台请求
+                                    if (fetchedModels.length === 0) {
+                                        fetchModel.mutate(
+                                            {
+                                                type: formData.type,
+                                                base_urls: formData.base_urls,
+                                                keys: formData.keys
+                                                    .filter((k) => k.channel_key.trim())
+                                                    .map((k) => ({ enabled: k.enabled, channel_key: k.channel_key.trim() })),
+                                                proxy: formData.proxy,
+                                                channel_proxy: formData.channel_proxy?.trim() || null,
+                                                match_regex: formData.match_regex.trim() || null,
+                                                custom_header: formData.custom_header?.filter((h) => h.header_key.trim()) || [],
+                                            },
+                                            {
+                                                onSuccess: (data) => {
+                                                    if (data && data.length > 0) {
+                                                        const nextFetched = Array.from(new Set(data.map((m) => m.trim()).filter(Boolean)));
+                                                        setFetchedModels(nextFetched);
+                                                        // 拉取后再基于当前模型列表同步一次预选
+                                                        setDialogSelectedModels(new Set(nextFetched.filter((model) => allModels.includes(model))));
+                                                    } else {
+                                                        toast.warning(t('modelRefreshEmpty'));
+                                                    }
+                                                },
+                                                onError: (error) => {
+                                                    const errorMessage = error instanceof Error ? error.message : String(error);
+                                                    toast.error(t('modelRefreshFailed'), { description: errorMessage });
+                                                },
+                                            }
+                                        );
+                                    }
+                                }}
+                                className="h-6 px-2 text-xs text-muted-foreground/70 hover:text-muted-foreground hover:bg-transparent gap-1"
+                            >
+                                <Search className="h-3 w-3" />
+                                {t('selectModels')}
+                            </Button>
+                        )}
+                    </div>
                 </div>
-                <input type="hidden" value={formData.model} required />
+                <input type="hidden" value={formData.model} />
 
                 <div className="relative">
                     <Input
@@ -424,7 +911,7 @@ export function ChannelForm({
                         {(autoModels.length + customModels.length) > 0 ? (
                             <div className="flex flex-wrap gap-1.5">
                                 {autoModels.map((model) => (
-                                    <Badge key={model} variant="secondary" className="bg-muted hover:bg-muted/80">
+                                    <Badge key={model} className="bg-primary hover:bg-primary/90">
                                         {model}
                                         <button
                                             type="button"
@@ -563,6 +1050,22 @@ export function ChannelForm({
                         </div>
 
                         <div className="space-y-2">
+                            <label htmlFor={`${idPrefix}-upstream-ignored`} className="text-sm font-medium text-card-foreground">
+                                {t('upstreamIgnoredModels')}
+                            </label>
+                            <textarea
+                                id={`${idPrefix}-upstream-ignored`}
+                                value={formData.upstream_model_update_ignored_models}
+                                onChange={(e) => onFormDataChange({ ...formData, upstream_model_update_ignored_models: e.target.value })}
+                                placeholder={t('upstreamIgnoredModelsPlaceholder')}
+                                className="min-h-20 w-full rounded-xl border border-border bg-background px-3 py-2 text-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                            />
+                            <p className="text-xs text-muted-foreground">
+                                {t('upstreamIgnoredModelsHelp')}
+                            </p>
+                        </div>
+
+                        <div className="space-y-2">
                             <label htmlFor={`${idPrefix}-param-override`} className="text-sm font-medium text-card-foreground">
                                 {t('paramOverride')}
                             </label>
@@ -615,14 +1118,158 @@ export function ChannelForm({
                         {cancelText}
                     </Button>
                 )}
-                <Button
-                    type="submit"
-                    disabled={isPending}
-                    className="w-full sm:flex-1 rounded-2xl h-12"
-                >
-                    {isPending ? pendingText : submitText}
-                </Button>
+                <div className="flex gap-2 w-full sm:flex-1">
+                    <Button
+                        type="button"
+                        variant="outline"
+                        disabled={isTesting || allModels.length === 0}
+                        onClick={handleTestFirst}
+                        className="flex-1 rounded-2xl h-12"
+                        title={t('testFirstTitle')}
+                    >
+                        {isTesting ? (
+                            <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+                        ) : null}
+                        {t('testFirst')}
+                    </Button>
+                    <Button
+                        type="button"
+                        variant="outline"
+                        disabled={isTesting || allModels.length === 0}
+                        onClick={handleTestAll}
+                        className="flex-1 rounded-2xl h-12"
+                        title={t('testAllTitle')}
+                    >
+                        {isTesting ? (
+                            <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+                        ) : null}
+                        {t('testAll')}
+                    </Button>
+                    <Button
+                        type="submit"
+                        disabled={isPending}
+                        className="flex-3 rounded-2xl h-12"
+                    >
+                        {isPending ? pendingText : submitText}
+                    </Button>
+                </div>
             </div>
+
+            {/* 测试结果摘要 */}
+            {testResults.size > 0 && (
+                <div className="rounded-xl border border-border bg-muted/20 p-3 space-y-2">
+                    <div className="text-xs font-medium text-card-foreground">{t('testResultTitle')}</div>
+                    <div className="space-y-1 max-h-40 overflow-y-auto">
+                        {Array.from(testResults.entries()).map(([model, result]) => (
+                            <div key={model} className="flex items-center gap-2 text-xs">
+                                {result.passed ? (
+                                    <CheckCircle2 className="h-3.5 w-3.5 text-green-500 shrink-0" />
+                                ) : (
+                                    <XCircle className="h-3.5 w-3.5 text-red-500 shrink-0" />
+                                )}
+                                <span className="font-mono flex-1 truncate">{model}</span>
+                                {result.delay !== undefined && (
+                                    <span className="text-muted-foreground">{result.delay}ms</span>
+                                )}
+                                {result.error && (
+                                    <span className="text-red-500 truncate max-w-32" title={result.error}>{result.error}</span>
+                                )}
+                            </div>
+                        ))}
+                    </div>
+                    <div className="text-xs text-muted-foreground">
+                        {t('testResultSummary', {
+                            total: testResults.size,
+                            passed: Array.from(testResults.values()).filter((r) => r.passed).length,
+                        })}
+                    </div>
+                </div>
+            )}
         </form>
+        {/* 选择模型弹框 - 放在 form 外避免事件冒泡关闭外层弹框 */}
+        <Dialog open={showModelSelectDialog} onOpenChange={setShowModelSelectDialog}>
+            <DialogContent className="max-w-md flex flex-col max-h-[80vh] overflow-hidden">
+                <DialogHeader className="shrink-0">
+                    <div className="flex items-center justify-between">
+                        <DialogTitle>{t('fetchedModelList')}</DialogTitle>
+                        {fetchModel.isPending && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
+                    </div>
+                </DialogHeader>
+                {/* 全选行 */}
+                {fetchModel.isPending ? (
+                    <div className="flex items-center justify-center py-8">
+                        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                    </div>
+                ) : fetchedModels.length === 0 ? (
+                    <div className="flex items-center justify-center py-8 text-sm text-muted-foreground">
+                        {tModels('noModels')}
+                    </div>
+                ) : (
+                    <>
+                    <div
+                        className="flex items-center gap-2 px-1 py-1 cursor-pointer hover:bg-accent/5 rounded-lg shrink-0"
+                        onClick={() => {
+                            if (dialogSelectedModels.size === fetchedModels.length) {
+                                setDialogSelectedModels(new Set());
+                            } else {
+                                setDialogSelectedModels(new Set(fetchedModels));
+                            }
+                        }}
+                    >
+                        <div className="size-4 shrink-0 rounded border border-primary flex items-center justify-center">
+                            {dialogSelectedModels.size === fetchedModels.length && fetchedModels.length > 0 && (
+                                <Check className="h-3 w-3 text-primary" />
+                            )}
+                        </div>
+                        <span className="text-sm font-medium">{t('modelSelectAllFetched')}</span>
+                    </div>
+                <div className="border-t shrink-0" />
+                {/* 模型列表 - 直接作为 flex 子项，自身滑动 */}
+                <div
+                    className="flex-1 min-h-0 overflow-y-auto space-y-0.5 py-1 dialog-model-scrollbar"
+                    style={{ scrollbarWidth: 'thin', msOverflowStyle: 'auto' }}
+                >
+                    {fetchedModels.map((model) => (
+                        <div
+                            key={model}
+                            className="flex items-center gap-2 px-1 py-1.5 cursor-pointer hover:bg-accent/5 rounded-lg"
+                            onClick={() => {
+                                const next = new Set(dialogSelectedModels);
+                                if (next.has(model)) next.delete(model);
+                                else next.add(model);
+                                setDialogSelectedModels(next);
+                            }}
+                        >
+                            <div className="size-4 shrink-0 rounded border border-primary flex items-center justify-center">
+                                {dialogSelectedModels.has(model) && (
+                                    <Check className="h-3 w-3 text-primary" />
+                                )}
+                            </div>
+                            <span className="font-mono text-sm">{model}</span>
+                        </div>
+                    ))}
+                    </div>
+                    </>
+                )}
+                <DialogFooter className="shrink-0">
+                    <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() => setShowModelSelectDialog(false)}
+                        className="rounded-xl"
+                    >
+                        {t('selectModelsCancel')}
+                    </Button>
+                    <Button
+                        type="button"
+                        onClick={handleConfirmModelSelect}
+                        className="rounded-xl"
+                    >
+                        {t('selectModelsConfirm')}
+                    </Button>
+                </DialogFooter>
+            </DialogContent>
+        </Dialog>
+        </>
     );
 }

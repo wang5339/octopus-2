@@ -1,8 +1,10 @@
 package handlers
 
 import (
+	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/bestruirui/octopus/internal/model"
 	"github.com/bestruirui/octopus/internal/op"
@@ -12,6 +14,22 @@ import (
 	"github.com/dlclark/regexp2"
 	"github.com/gin-gonic/gin"
 )
+
+func validateGroupName(name string) error {
+	trimmed := strings.TrimSpace(name)
+	if trimmed == "" {
+		return nil
+	}
+	// 检查长度限制
+	if len(trimmed) > 100 {
+		return fmt.Errorf("group name too long (max 100 characters)")
+	}
+	// 检查非法字符
+	if strings.ContainsAny(trimmed, " :：\t\n\r") {
+		return fmt.Errorf("group name cannot contain spaces or colon(:/：)")
+	}
+	return nil
+}
 
 func init() {
 	router.NewGroupRouter("/api/v1/group").
@@ -61,6 +79,10 @@ func createGroup(c *gin.Context) {
 			return
 		}
 	}
+	if err := validateGroupName(group.Name); err != nil {
+		resp.Error(c, http.StatusBadRequest, err.Error())
+		return
+	}
 	if err := op.GroupCreate(&group, c.Request.Context()); err != nil {
 		resp.Error(c, http.StatusInternalServerError, err.Error())
 		return
@@ -77,6 +99,12 @@ func updateGroup(c *gin.Context) {
 	if req.MatchRegex != nil {
 		_, err := regexp2.Compile(*req.MatchRegex, regexp2.ECMAScript)
 		if err != nil {
+			resp.Error(c, http.StatusBadRequest, err.Error())
+			return
+		}
+	}
+	if req.Name != nil {
+		if err := validateGroupName(*req.Name); err != nil {
 			resp.Error(c, http.StatusBadRequest, err.Error())
 			return
 		}

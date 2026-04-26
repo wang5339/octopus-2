@@ -15,6 +15,11 @@ const (
 	AutoGroupTypeRegex AutoGroupType = 3 //正则匹配
 )
 
+type ModelProtocolOverride struct {
+	Model string                `json:"model"`
+	Type  outbound.OutboundType `json:"type"`
+}
+
 type Channel struct {
 	ID            int                   `json:"id" gorm:"primaryKey"`
 	Name          string                `json:"name" gorm:"unique;not null"`
@@ -32,6 +37,14 @@ type Channel struct {
 	ChannelProxy  *string               `json:"channel_proxy"`
 	Stats         *StatsChannel         `json:"stats,omitempty" gorm:"foreignKey:ChannelID"`
 	MatchRegex    *string               `json:"match_regex"`
+	// ModelProtocolOverrides 用于给单个模型指定出站协议；为空时走渠道默认 Type。
+	ModelProtocolOverrides []ModelProtocolOverride `json:"model_protocol_overrides" gorm:"serializer:json"`
+	// UpstreamModelUpdate* 用于记录上游模型巡检结果。
+	// AutoSync=true 时，定时任务会自动追加新增模型；消失模型只记录，不自动删除。
+	UpstreamModelUpdateLastCheckTime      int64    `json:"upstream_model_update_last_check_time"`
+	UpstreamModelUpdateLastDetectedModels []string `json:"upstream_model_update_last_detected_models" gorm:"serializer:json"`
+	UpstreamModelUpdateLastRemovedModels  []string `json:"upstream_model_update_last_removed_models" gorm:"serializer:json"`
+	UpstreamModelUpdateIgnoredModels      []string `json:"upstream_model_update_ignored_models" gorm:"serializer:json"`
 }
 
 type BaseUrl struct {
@@ -71,6 +84,13 @@ type ChannelUpdateRequest struct {
 	ChannelProxy  *string                `json:"channel_proxy,omitempty"`
 	ParamOverride *string                `json:"param_override,omitempty"`
 	MatchRegex    *string                `json:"match_regex,omitempty"`
+	// ModelProtocolOverrides 支持模型级出站协议覆盖；传空数组表示清空覆盖。
+	ModelProtocolOverrides *[]ModelProtocolOverride `json:"model_protocol_overrides,omitempty"`
+	// UpstreamModelUpdateIgnoredModels 支持精确模型名或 regex: 前缀正则。
+	UpstreamModelUpdateLastCheckTime      *int64    `json:"upstream_model_update_last_check_time,omitempty"`
+	UpstreamModelUpdateLastDetectedModels *[]string `json:"upstream_model_update_last_detected_models,omitempty"`
+	UpstreamModelUpdateLastRemovedModels  *[]string `json:"upstream_model_update_last_removed_models,omitempty"`
+	UpstreamModelUpdateIgnoredModels      *[]string `json:"upstream_model_update_ignored_models,omitempty"`
 
 	KeysToAdd    []ChannelKeyAddRequest    `json:"keys_to_add,omitempty"`
 	KeysToUpdate []ChannelKeyUpdateRequest `json:"keys_to_update,omitempty"`

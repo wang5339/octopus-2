@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
-import { Trash2, X, Pencil } from 'lucide-react';
+import { Trash2, X, Pencil, ChevronDown } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { type Group, useDeleteGroup, useUpdateGroup } from '@/api/endpoints/group';
 import { useModelChannelList } from '@/api/endpoints/model';
@@ -75,6 +75,7 @@ export function GroupCard({ group }: { group: Group }) {
     const { data: modelChannels = [] } = useModelChannelList();
 
     const [confirmDelete, setConfirmDelete] = useState(false);
+    const [expanded, setExpanded] = useState(false);
     const [members, setMembers] = useState<SelectedMember[]>([]);
     const isDragging = useRef(false);
     const weightTimerRef = useRef<NodeJS.Timeout | null>(null);
@@ -105,6 +106,7 @@ export function GroupCard({ group }: { group: Group }) {
     );
 
     useEffect(() => {
+        // eslint-disable-next-line react-hooks/set-state-in-effect
         if (!isDragging.current) setMembers([...displayMembers]);
     }, [displayMembers]);
 
@@ -337,19 +339,31 @@ export function GroupCard({ group }: { group: Group }) {
                 ))}
             </div>
 
-            <section className="rounded-xl border border-border/50 bg-muted/30 overflow-hidden relative h-101">
-                <MemberList
-                    members={members}
-                    onReorder={setMembers}
-                    onRemove={handleRemoveMember}
-                    onWeightChange={handleWeightChange}
-                    onDragStart={handleDragStart}
-                    onDrop={handleDropReorder}
-                    onDragFinish={handleDragFinish}
-                    autoScrollOnAdd={false}
-                    showWeight={group.mode === GroupMode.Weighted}
-                    layoutScope={`card-${group.id ?? 'unknown'}`}
-                />
+            <section className="rounded-xl border border-border/50 bg-muted/30 overflow-hidden relative">
+                <button
+                    type="button"
+                    onClick={() => setExpanded((v) => !v)}
+                    className="w-full flex items-center justify-between px-3 py-2 text-sm text-muted-foreground hover:bg-muted/50 transition-colors"
+                >
+                    <span>{t('detail.memberCount', { count: members.length })}</span>
+                    <ChevronDown className={cn('size-4 transition-transform', expanded && 'rotate-180')} />
+                </button>
+                {expanded && (
+                    <div className="h-101">
+                        <MemberList
+                            members={members}
+                            onReorder={setMembers}
+                            onRemove={handleRemoveMember}
+                            onWeightChange={handleWeightChange}
+                            onDragStart={handleDragStart}
+                            onDrop={handleDropReorder}
+                            onDragFinish={handleDragFinish}
+                            autoScrollOnAdd={false}
+                            showWeight={group.mode === GroupMode.Weighted}
+                            layoutScope={`card-${group.id ?? 'unknown'}`}
+                        />
+                    </div>
+                )}
             </section>
         </article >
     );

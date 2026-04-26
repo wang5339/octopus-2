@@ -1,0 +1,79 @@
+[
+  {
+    "name": "OpenAI",
+    "channel_type": 0,
+    "base_url": "https://api.openai.com/v1"
+  },
+  {
+    "name": "Anthropic",
+    "channel_type": 2,
+    "base_url": "https://api.anthropic.com/v1"
+  },
+  {
+    "name": "Gemini",
+    "channel_type": 3,
+    "base_url": "https://generativelanguage.googleapis.com/v1beta"
+  },
+  {
+    "name": "火山引擎",
+    "channel_type": 4,
+    "base_url": "https://ark.cn-beijing.volces.com/api/v3"
+  },
+  {
+    "name": "OpenAI Embedding",
+    "channel_type": 5,
+    "base_url": "https://api.openai.com/v1"
+  },
+  {
+    "name": "OpenAI Image Generation",
+    "channel_type": 6,
+    "base_url": "https://api.openai.com/v1"
+  },
+  {
+    "name": "OpenRouter",
+    "channel_type": 0,
+    "base_url": "https://openrouter.ai/api/v1"
+  },
+  {
+    "name": "质谱 AI (OpenAI 兼容)",
+    "channel_type": 0,
+    "base_url": "https://open.bigmodel.cn/api/paas/v4"
+  },
+  {
+    "name": "质谱 AI (Anthropic 兼容)",
+    "channel_type": 2,
+    "base_url": "https://open.bigmodel.cn/api/anthropic/v1"
+  },
+  {
+    "name": "质谱 Coding Plan (OpenAI 兼容)",
+    "channel_type": 0,
+    "base_url": "https://open.bigmodel.cn/api/coding/paas/v4"
+  },
+  {
+    "name": "质谱 Coding Plan (Anthropic 兼容，适合Claude Code)",
+    "channel_type": 2,
+    "base_url": "https://open.bigmodel.cn/api/anthropic/v1"
+  },
+  {
+    "name": "GitHub Copilot",
+    "channel_type": 7,
+    "base_url": "https://api.githubcopilot.com",
+    "auth_type": "oauth_device"
+  },
+  {
+    "name": "Vercel AI Gateway",
+    "channel_type": 0,
+    "base_url": "https://ai.vercel.app/api/v1"
+  },
+  {
+    "name": "OpenCode Zen",
+    "channel_type": 9,
+    "base_url": "https://opencode.ai/zen/v1"
+  },
+  {
+    "name": "Antigravity",
+    "channel_type": 8,
+    "base_url": "https://cloudcode-pa.googleapis.com",
+    "auth_type": "oauth_web"
+  }
+]
