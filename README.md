@@ -3,7 +3,7 @@
 <img src="web/public/logo.svg" alt="Octopus Logo" width="120" height="120">
 
 ### Octopus
-
+1
 **A self-hosted AI API gateway for individuals and small teams, unifying multi-provider model access, protocol conversion, load balancing, model management, and usage analytics**
 
  English | [简体中文](README_zh.md)
