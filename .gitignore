@@ -3,3 +3,7 @@ build
 static/out/*
 !static/out/README.md
 .vscode
+.gocache/
+.claude/
+.cunzhi-memory/
+.magi/

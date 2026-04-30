@@ -23,6 +23,12 @@ import (
 	"github.com/tmaxmax/go-sse"
 )
 
+const (
+	nonStreamRequestTimeout     = 120 * time.Second
+	maxUpstreamErrorBodyBytes   = 16 * 1024
+	upstreamErrorBodyTruncation = "\n... [truncated]"
+)
+
 // Handler 处理入站请求并转发到上游服务
 func Handler(inboundType inbound.InboundType, c *gin.Context) {
 	// 解析请求
@@ -298,9 +304,18 @@ func (ra *relayAttempt) forward() (int, error) {
 	ctx := ra.c.Request.Context()
 
 	// 构建出站请求
+	requestForAttempt, err := helper.CloneInternalLLMRequest(ra.internalRequest)
+	if err != nil {
+		log.Warnf("failed to clone request: %v", err)
+		return 0, fmt.Errorf("failed to clone request: %w", err)
+	}
+	if err := helper.ApplyParamOverride(requestForAttempt, ra.channel.ParamOverride); err != nil {
+		log.Warnf("failed to apply param override: %v", err)
+		return 0, fmt.Errorf("failed to apply param override: %w", err)
+	}
 	outboundRequest, err := ra.outAdapter.TransformRequest(
 		ctx,
-		ra.internalRequest,
+		requestForAttempt,
 		ra.channel.GetBaseUrl(),
 		ra.usedKey.ChannelKey,
 	)
@@ -321,11 +336,11 @@ func (ra *relayAttempt) forward() (int, error) {
 
 	// 检查响应状态
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		body, err := io.ReadAll(response.Body)
+		body, err := readUpstreamErrorBody(response.Body)
 		if err != nil {
 			return response.StatusCode, fmt.Errorf("failed to read response body: %w", err)
 		}
-		return response.StatusCode, fmt.Errorf("upstream error: %d: %s", response.StatusCode, string(body))
+		return response.StatusCode, fmt.Errorf("upstream error: %d: %s", response.StatusCode, body)
 	}
 
 	// 处理响应
@@ -339,6 +354,21 @@ func (ra *relayAttempt) forward() (int, error) {
 		return 0, err
 	}
 	return response.StatusCode, nil
+}
+
+func readUpstreamErrorBody(body io.Reader) (string, error) {
+	if body == nil {
+		return "", nil
+	}
+	data, err := io.ReadAll(io.LimitReader(body, maxUpstreamErrorBodyBytes+1))
+	if err != nil {
+		return "", err
+	}
+	if len(data) > maxUpstreamErrorBodyBytes {
+		data = data[:maxUpstreamErrorBodyBytes]
+		return string(data) + upstreamErrorBodyTruncation, nil
+	}
+	return string(data), nil
 }
 
 // copyHeaders 复制请求头，过滤 hop-by-hop 头
@@ -368,13 +398,37 @@ func (ra *relayAttempt) sendRequest(req *http.Request) (*http.Response, error) {
 		return nil, err
 	}
 
+	var cancel context.CancelFunc
+	if ra.internalRequest.Stream == nil || !*ra.internalRequest.Stream {
+		ctx, c := context.WithTimeout(req.Context(), nonStreamRequestTimeout)
+		cancel = c
+		req = req.WithContext(ctx)
+	}
+
 	response, err := httpClient.Do(req)
 	if err != nil {
+		if cancel != nil {
+			cancel()
+		}
 		log.Warnf("failed to send request: %v", err)
 		return nil, err
 	}
+	if cancel != nil {
+		response.Body = &cancelOnCloseReadCloser{ReadCloser: response.Body, cancel: cancel}
+	}
 
 	return response, nil
+}
+
+type cancelOnCloseReadCloser struct {
+	io.ReadCloser
+	cancel context.CancelFunc
+}
+
+func (r *cancelOnCloseReadCloser) Close() error {
+	err := r.ReadCloser.Close()
+	r.cancel()
+	return err
 }
 
 // handleStreamResponse 处理流式响应

@@ -136,6 +136,44 @@ func TestChannelBaseUrlUpdateConcurrency(t *testing.T) {
 	}
 }
 
+func TestMergeDirtyRuntimeKeysPreservesAdminFields(t *testing.T) {
+	dbChannel := model.Channel{
+		ID:   1,
+		Name: "test-channel",
+		Keys: []model.ChannelKey{
+			{
+				ID:         1,
+				ChannelID:  1,
+				Enabled:    false,
+				ChannelKey: "new-key",
+				Remark:     "admin-updated",
+			},
+		},
+	}
+	dirtyRuntime := map[int]model.ChannelKey{
+		1: {
+			ID:               1,
+			ChannelID:        1,
+			Enabled:          true,
+			ChannelKey:       "old-key",
+			StatusCode:       429,
+			LastUseTimeStamp: 12345,
+			TotalCost:        9.9,
+			Remark:           "old-remark",
+		},
+	}
+
+	mergeDirtyRuntimeKeys(&dbChannel, dirtyRuntime)
+
+	got := dbChannel.Keys[0]
+	if got.Enabled != false || got.ChannelKey != "new-key" || got.Remark != "admin-updated" {
+		t.Fatalf("admin fields were overwritten: %#v", got)
+	}
+	if got.StatusCode != 429 || got.LastUseTimeStamp != 12345 || got.TotalCost != 9.9 {
+		t.Fatalf("runtime fields were not merged: %#v", got)
+	}
+}
+
 func BenchmarkChannelKeyUpdate(b *testing.B) {
 	// 初始化测试缓存
 	channelCache = cache.New[int, model.Channel](16)

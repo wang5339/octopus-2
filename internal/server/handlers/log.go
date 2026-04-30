@@ -75,6 +75,9 @@ func listLog(c *gin.Context) {
 }
 
 func clearLog(c *gin.Context) {
+	if !requireDestructiveConfirm(c, "clear-logs") {
+		return
+	}
 	if err := op.RelayLogClear(c.Request.Context()); err != nil {
 		resp.Error(c, http.StatusInternalServerError, err.Error())
 		return
@@ -93,12 +96,10 @@ func getStreamToken(c *gin.Context) {
 
 func streamLog(c *gin.Context) {
 	token := c.Query("token")
-	if token == "" || !op.RelayLogStreamTokenVerify(token) {
+	if token == "" || !op.RelayLogStreamTokenConsume(token) {
 		resp.Error(c, http.StatusUnauthorized, "invalid stream token")
 		return
 	}
-
-	op.RelayLogStreamTokenRevoke(token)
 
 	c.Header("Content-Type", "text/event-stream")
 	c.Header("Cache-Control", "no-cache")

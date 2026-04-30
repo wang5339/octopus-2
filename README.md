@@ -3,7 +3,6 @@
 <img src="web/public/logo.svg" alt="Octopus Logo" width="120" height="120">
 
 ### Octopus
-1
 **A self-hosted AI API gateway for individuals and small teams, unifying multi-provider model access, protocol conversion, load balancing, model management, and usage analytics**
 
  English | [简体中文](README_zh.md)
@@ -13,18 +12,17 @@
 
 ## 🐙 Overview
 
-Octopus is a self-hosted LLM API aggregation gateway. It brings OpenAI-compatible APIs, Anthropic, Gemini, Volcengine, GitHub Copilot, Antigravity, OpenCode Zen, and other upstream providers into one management panel, while exposing APIs that follow familiar OpenAI / Anthropic usage patterns.
+Octopus is a self-hosted LLM API aggregation gateway. It brings OpenAI-compatible APIs, Anthropic, Gemini, Volcengine, OpenCode Zen, and other upstream providers into one management panel, while exposing APIs that follow familiar OpenAI / Anthropic usage patterns.
 
 With Octopus, you can manage channels, Base URLs, API keys, model lists, group routing, load-balancing policies, and model prices in one place. It also provides request logs, token usage, cost analytics, channel health information, and built-in API usage documentation. It is suitable for personal use, multi-model aggregation, centralized API key distribution, model routing experiments, and lightweight team gateway scenarios.
 
 
 ## ✨ Features
 
-- 🔀 **Multi-provider aggregation** - Connect OpenAI-compatible APIs, Anthropic, Gemini, Volcengine, GitHub Copilot, Antigravity, OpenCode Zen, and more
+- 🔀 **Multi-provider aggregation** - Connect OpenAI-compatible APIs, Anthropic, Gemini, Volcengine, OpenCode Zen, and more
 - 🔄 **Protocol conversion** - Convert between OpenAI Chat, OpenAI Responses, Anthropic Messages, Embeddings, Image Generation, and related request formats
 - 🧠 **Per-model protocol overrides** - Assign different outbound protocols to different models inside the same channel, useful for mixed-model gateways and Zen-style routing
 - 🔑 **Multi-key management** - Configure multiple API keys per channel and automatically select available keys based on runtime state
-- 🪪 **OAuth helpers** - Built-in entry points for GitHub Copilot Device Flow and Antigravity Web OAuth
 - ⚡ **Smart endpoint selection** - Configure multiple Base URLs per channel and prefer lower-latency endpoints
 - ⚖️ **Load balancing and resilience** - Supports round robin, random, failover, weighted routing, retries, circuit breaking, and sticky sessions
 - 🔃 **Model sync and detection** - Sync upstream models, detect added / removed models, configure ignore rules, and apply updates manually
@@ -176,7 +174,6 @@ All configuration options can be overridden via environment variables using the 
 | `OCTOPUS_DATABASE_TYPE` | `database.type` |
 | `OCTOPUS_DATABASE_PATH` | `database.path` |
 | `OCTOPUS_LOG_LEVEL` | `log.level` |
-| `OCTOPUS_GITHUB_PAT` | For rate limiting when getting the latest version (optional) |
 | `OCTOPUS_RELAY_MAX_SSE_EVENT_SIZE` | Maximum SSE event size (optional) |
 
 ## 📸 Screenshots
@@ -245,8 +242,6 @@ Channels are the basic configuration units for connecting to LLM providers and m
 - Model testing: test model availability before or after saving
 - Upstream update detection: detect added and removed models; added models can be appended, while removed models require manual confirmation
 - Ignore rules: skip unwanted models with exact model names or `regex:` rules
-- OAuth channels: GitHub Copilot Device Flow and Antigravity Web OAuth entry points
-
 **Base URL Guide:**
 
 The program automatically appends API paths based on channel type. You only need to provide the base URL:
@@ -260,8 +255,6 @@ The program automatically appends API paths based on channel type. You only need
 | Volcengine | `/responses` | Provider base URL | `{base_url}/responses` |
 | OpenAI Embedding | `/embeddings` | `https://api.openai.com/v1` | `https://api.openai.com/v1/embeddings` |
 | OpenAI Image Generation | `/images/generations` | `https://api.openai.com/v1` | `https://api.openai.com/v1/images/generations` |
-| GitHub Copilot | `/chat/completions` | `https://api.githubcopilot.com` | `https://api.githubcopilot.com/chat/completions` |
-| Antigravity | `/v1internal:generateContent` / `/v1internal:streamGenerateContent` | `https://cloudcode-pa.googleapis.com` | `https://cloudcode-pa.googleapis.com/v1internal:generateContent` |
 | OpenCode Zen | Dynamically chooses Chat / Responses / Anthropic / Gemini paths by model | Zen service base URL | Routed automatically by model prefix |
 
 > 💡 **Tip**: No need to include specific API endpoint paths in the Base URL - the program handles this automatically.
@@ -336,7 +329,7 @@ import os
 
 client = OpenAI(   
     base_url="http://127.0.0.1:8080/v1",   
-    api_key="sk-octopus-P48ROljwJmWBYVARjwQM8Nkiezlg7WOrXXOWDYY8TI5p9Mzg", 
+    api_key="sk-octopus-your-api-key",
 )
 completion = client.chat.completions.create(
     model="octopus-openai",  # Use the correct group name
@@ -355,7 +348,7 @@ Edit `~/.claude/settings.json`
 {
   "env": {
     "ANTHROPIC_BASE_URL": "http://127.0.0.1:8080",
-    "ANTHROPIC_AUTH_TOKEN": "sk-octopus-P48ROljwJmWBYVARjwQM8Nkiezlg7WOrXXOWDYY8TI5p9Mzg",
+    "ANTHROPIC_AUTH_TOKEN": "sk-octopus-your-api-key",
     "API_TIMEOUT_MS": "3000000",
     "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
     "ANTHROPIC_MODEL": "octopus-sonnet-4-5",
@@ -385,7 +378,7 @@ Edit `~/.codex/auth.json`
 
 ```json
 {
-  "OPENAI_API_KEY": "sk-octopus-P48ROljwJmWBYVARjwQM8Nkiezlg7WOrXXOWDYY8TI5p9Mzg"
+  "OPENAI_API_KEY": "sk-octopus-your-api-key"
 }
 ```
 

@@ -1,9 +1,15 @@
 services:
   octopus:
-    build: .
+    build:
+      context: .
+      args:
+        VERSION: ${OCTOPUS_BUILD_VERSION:-local}
+        COMMIT: ${OCTOPUS_BUILD_COMMIT:-local}
+        NEXT_PUBLIC_APP_VERSION: ${OCTOPUS_BUILD_VERSION:-local}
+        NEXT_PUBLIC_GITHUB_REPO: ${OCTOPUS_GITHUB_REPO:-https://github.com/wang5339/octopus-2}
     ports:
-       - '8080:8080'
+      - '8080:8080'
     volumes:
-       - './data:/app/data'
+      - './data:/app/data'
     container_name: octopus
     restart: unless-stopped

@@ -13,18 +13,17 @@
 
 ## 🐙 项目简介
 
-Octopus 是一个自托管的 LLM API 聚合网关。它可以把 OpenAI 兼容接口、Anthropic、Gemini、Volcengine、GitHub Copilot、Antigravity、OpenCode Zen 等不同上游统一接入到一个管理面板中，并对外提供兼容 OpenAI / Anthropic 使用习惯的 API。
+Octopus 是一个自托管的 LLM API 聚合网关。它可以把 OpenAI 兼容接口、Anthropic、Gemini、Volcengine、OpenCode Zen 等不同上游统一接入到一个管理面板中，并对外提供兼容 OpenAI / Anthropic 使用习惯的 API。
 
 你可以通过 Octopus 统一管理渠道、Base URL、API Key、模型列表、分组路由、负载均衡策略和模型价格；同时还能查看请求日志、Token 消耗、费用统计、渠道健康状态和 API 使用文档。适合个人自用、多模型聚合、API Key 统一分发、模型路由实验和轻量级团队网关场景。
 
 
 ## ✨ 特性
 
-- 🔀 **多上游聚合** - 统一接入 OpenAI 兼容接口、Anthropic、Gemini、Volcengine、GitHub Copilot、Antigravity、OpenCode Zen 等渠道
+- 🔀 **多上游聚合** - 统一接入 OpenAI 兼容接口、Anthropic、Gemini、Volcengine、OpenCode Zen 等渠道
 - 🔄 **协议转换** - 支持 OpenAI Chat、OpenAI Responses、Anthropic Messages、Embeddings、Image Generation 等请求格式转换
 - 🧠 **模型级协议覆盖** - 同一渠道内可为不同模型指定不同出站协议，适配混合模型网关和 Zen 类路由
 - 🔑 **多 Key 管理** - 单渠道支持多个 API Key，可按运行状态自动选择可用 Key
-- 🪪 **OAuth 授权辅助** - 支持 GitHub Copilot Device Flow 与 Antigravity Web OAuth 的授权入口
 - ⚡ **智能端点优选** - 单渠道可配置多个 Base URL，并优先使用延迟更低的端点
 - ⚖️ **负载均衡与容错** - 支持轮询、随机、故障转移、加权分配，并包含重试、熔断和会话保持能力
 - 🔃 **模型同步与检测** - 自动同步上游模型，支持手动检测新增 / 消失模型、忽略规则和一键应用
@@ -176,7 +175,6 @@ volumes:
 | `OCTOPUS_DATABASE_TYPE` | `database.type` |
 | `OCTOPUS_DATABASE_PATH` | `database.path` |
 | `OCTOPUS_LOG_LEVEL` | `log.level` |
-| `OCTOPUS_GITHUB_PAT` | 用于获取最新版本时的速率限制(可选) |
 | `OCTOPUS_RELAY_MAX_SSE_EVENT_SIZE` | 最大 SSE 事件大小(可选) |
 
 
@@ -246,8 +244,6 @@ volumes:
 - 模型测试：在保存前或保存后测试模型是否可用
 - 上游更新检测：检测新增模型和消失模型，新增可追加，消失需手动确认删除
 - 忽略规则：支持精确模型名和 `regex:` 正则规则，跳过不想自动同步的模型
-- OAuth 渠道：支持 GitHub Copilot Device Flow 与 Antigravity Web OAuth
-
 **Base URL 说明：**
 
 程序会根据渠道类型自动补全 API 路径，您只需填写基础 URL 即可：
@@ -261,8 +257,6 @@ volumes:
 | Volcengine | `/responses` | 供应商提供的基础 URL | `{base_url}/responses` |
 | OpenAI Embedding | `/embeddings` | `https://api.openai.com/v1` | `https://api.openai.com/v1/embeddings` |
 | OpenAI Image Generation | `/images/generations` | `https://api.openai.com/v1` | `https://api.openai.com/v1/images/generations` |
-| GitHub Copilot | `/chat/completions` | `https://api.githubcopilot.com` | `https://api.githubcopilot.com/chat/completions` |
-| Antigravity | `/v1internal:generateContent` / `/v1internal:streamGenerateContent` | `https://cloudcode-pa.googleapis.com` | `https://cloudcode-pa.googleapis.com/v1internal:generateContent` |
 | OpenCode Zen | 按模型动态选择 Chat / Responses / Anthropic / Gemini 路径 | Zen 服务基础 URL | 根据模型名前缀自动路由 |
 
 > 💡 **提示**：填写 Base URL 时无需包含具体的 API 端点路径，程序会自动处理。
@@ -338,7 +332,7 @@ import os
 
 client = OpenAI(   
     base_url="http://127.0.0.1:8080/v1",   
-    api_key="sk-octopus-P48ROljwJmWBYVARjwQM8Nkiezlg7WOrXXOWDYY8TI5p9Mzg", 
+    api_key="sk-octopus-your-api-key",
 )
 completion = client.chat.completions.create(
     model="octopus-openai",  // 填写正确的分组名称
@@ -357,7 +351,7 @@ print(completion.choices[0].message.content)
 {
   "env": {
     "ANTHROPIC_BASE_URL": "http://127.0.0.1:8080",
-    "ANTHROPIC_AUTH_TOKEN": "sk-octopus-P48ROljwJmWBYVARjwQM8Nkiezlg7WOrXXOWDYY8TI5p9Mzg",
+    "ANTHROPIC_AUTH_TOKEN": "sk-octopus-your-api-key",
     "API_TIMEOUT_MS": "3000000",
     "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
     "ANTHROPIC_MODEL": "octopus-sonnet-4-5",
@@ -386,7 +380,7 @@ base_url = "http://127.0.0.1:8080/v1"
 
 ```json
 {
-  "OPENAI_API_KEY": "sk-octopus-P48ROljwJmWBYVARjwQM8Nkiezlg7WOrXXOWDYY8TI5p9Mzg"
+  "OPENAI_API_KEY": "sk-octopus-your-api-key"
 }
 ```
 

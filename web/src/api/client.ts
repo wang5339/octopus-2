@@ -3,6 +3,16 @@ import { HttpStatus } from './types';
 
 export const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || '.';
 
+type QueryParams = Record<string, string | number | boolean>;
+
+type RequestOptions = {
+    params?: QueryParams;
+    headers?: HeadersInit;
+    timeoutMs?: number;
+};
+
+type RequestConfig = QueryParams | RequestOptions;
+
 /**
  * 获取认证 Store（延迟导入以避免循环依赖）
  */
@@ -61,6 +71,18 @@ async function handleResponse<T>(response: Response): Promise<T> {
     return data as T;
 }
 
+function normalizeOptions(options?: RequestConfig): RequestOptions {
+    if (!options) {
+        return {};
+    }
+
+    if ('params' in options || 'headers' in options || 'timeoutMs' in options) {
+        return options as RequestOptions;
+    }
+
+    return { params: options as QueryParams };
+}
+
 /**
  * 发送请求
  */
@@ -68,11 +90,13 @@ async function request<T>(
     method: string,
     path: string,
     body?: BodyInit,
-    params?: Record<string, string | number | boolean>
+    options?: RequestConfig
 ): Promise<T> {
+    const requestOptions = normalizeOptions(options);
+
     // 构建 URL
-    const searchParams = params ? new URLSearchParams(
-        Object.entries(params).map(([k, v]) => [k, String(v)])
+    const searchParams = requestOptions.params ? new URLSearchParams(
+        Object.entries(requestOptions.params).map(([k, v]) => [k, String(v)])
     ).toString() : '';
     const url = `${API_BASE_URL}${path}${searchParams ? `?${searchParams}` : ''}`;
 
@@ -92,14 +116,45 @@ async function request<T>(
         }
     }
 
-    // 发送请求
-    const response = await fetch(url.toString(), {
-        method,
-        headers,
-        body,
-    });
+    // 合并调用方传入的请求头，用于危险操作确认等场景
+    if (requestOptions.headers) {
+        new Headers(requestOptions.headers).forEach((value, key) => {
+            headers.set(key, value);
+        });
+    }
 
-    return handleResponse<T>(response);
+    const controller = requestOptions.timeoutMs && requestOptions.timeoutMs > 0
+        ? new AbortController()
+        : undefined;
+    const timeoutId = controller && requestOptions.timeoutMs
+        ? setTimeout(() => controller.abort(), requestOptions.timeoutMs)
+        : undefined;
+
+    try {
+        // 发送请求
+        const response = await fetch(url.toString(), {
+            method,
+            headers,
+            body,
+            signal: controller?.signal,
+        });
+
+        return await handleResponse<T>(response);
+    } catch (error) {
+        if (error instanceof Error && error.name === 'AbortError') {
+            const apiError: ApiError = {
+                code: HttpStatus.REQUEST_TIMEOUT,
+                message: `Request timed out after ${requestOptions.timeoutMs}ms`,
+            };
+            handleError(apiError);
+            throw apiError;
+        }
+        throw error;
+    } finally {
+        if (timeoutId) {
+            clearTimeout(timeoutId);
+        }
+    }
 }
 
 /**
@@ -109,31 +164,30 @@ export const apiClient = {
     /**
      * GET 请求
      */
-    get: <T>(path: string, params?: Record<string, string | number | boolean>): Promise<T> =>
-        request<T>('GET', path, undefined, params),
+    get: <T>(path: string, options?: RequestConfig): Promise<T> =>
+        request<T>('GET', path, undefined, options),
 
     /**
      * POST 请求
      */
-    post: <T>(path: string, data?: unknown, params?: Record<string, string | number | boolean>): Promise<T> =>
-        request<T>('POST', path, data ? JSON.stringify(data) : undefined, params),
+    post: <T>(path: string, data?: unknown, options?: RequestConfig): Promise<T> =>
+        request<T>('POST', path, data ? JSON.stringify(data) : undefined, options),
 
     /**
      * PUT 请求
      */
-    put: <T>(path: string, data?: unknown, params?: Record<string, string | number | boolean>): Promise<T> =>
-        request<T>('PUT', path, data ? JSON.stringify(data) : undefined, params),
+    put: <T>(path: string, data?: unknown, options?: RequestConfig): Promise<T> =>
+        request<T>('PUT', path, data ? JSON.stringify(data) : undefined, options),
 
     /**
      * DELETE 请求
      */
-    delete: <T>(path: string, params?: Record<string, string | number | boolean>): Promise<T> =>
-        request<T>('DELETE', path, undefined, params),
+    delete: <T>(path: string, options?: RequestConfig): Promise<T> =>
+        request<T>('DELETE', path, undefined, options),
 
     /**
      * PATCH 请求
      */
-    patch: <T>(path: string, data?: unknown, params?: Record<string, string | number | boolean>): Promise<T> =>
-        request<T>('PATCH', path, data ? JSON.stringify(data) : undefined, params),
+    patch: <T>(path: string, data?: unknown, options?: RequestConfig): Promise<T> =>
+        request<T>('PATCH', path, data ? JSON.stringify(data) : undefined, options),
 };
-

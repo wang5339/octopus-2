@@ -164,6 +164,9 @@ func deleteLLM(c *gin.Context) {
 		resp.Error(c, http.StatusBadRequest, err.Error())
 		return
 	}
+	if !requireDestructiveConfirm(c, "delete-model") {
+		return
+	}
 	if err := op.LLMDelete(req.Name, c.Request.Context()); err != nil {
 		resp.Error(c, http.StatusInternalServerError, err.Error())
 		return

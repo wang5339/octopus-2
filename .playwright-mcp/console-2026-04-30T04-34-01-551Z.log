@@ -1,0 +1,18 @@
+[    1642ms] [WARNING] The web fetch in browser environment has not psm field @ https://portal.volccdn.com/obj/volcfe-scm/doccenter/static/js/896.a1f2c74f.js:1
+[    1642ms] [WARNING] The web fetch in browser environment has not psm field @ https://portal.volccdn.com/obj/volcfe-scm/doccenter/static/js/896.a1f2c74f.js:1
+[    2395ms] [LOG] Deprecated as of 10.7.0. highlight(lang, code, ...args) has been deprecated. @ https://portal.volccdn.com/obj/volcfe-scm/doccenter/static/js/async/viewer-v2.96abffb3.js:1
+[    2395ms] [LOG] Deprecated as of 10.7.0. Please use highlight(code, options) instead.
+https://github.com/highlightjs/highlight.js/issues/2277 @ https://portal.volccdn.com/obj/volcfe-scm/doccenter/static/js/async/viewer-v2.96abffb3.js:1
+[    2529ms] [ERROR] Failed to load resource: the server responded with a status of 401 () @ https://console.volcengine.com/api/passport/account/getUser:0
+[    2554ms] [WARNING] The web fetch in browser environment has not psm field @ https://portal.volccdn.com/obj/volcfe-scm/doccenter/static/js/896.a1f2c74f.js:1
+[    2627ms] [ERROR] can no read vconsoleAppInfo from window object @ https://portal.volccdn.com/obj/volcfe-scm/doccenter/static/js/async/82.1d1a706d.js:1
+[    2669ms] [INFO] [MonitorTracer] init successfully! version: 0.17.0 @ https://portal.volccdn.com/obj/volcfe-scm/doccenter/static/js/async/228.94a09830.js:0
+[    2720ms] [LOG] ========= undefined @ https://portal.volccdn.com/obj/volcfe-scm/doccenter/static/js/main.f1c151b6.js:0
+[    2721ms] [WARNING] The web fetch in browser environment has not psm field @ https://portal.volccdn.com/obj/volcfe-scm/doccenter/static/js/896.a1f2c74f.js:1
+[    3249ms] [WARNING] The web fetch in browser environment has not psm field @ https://portal.volccdn.com/obj/volcfe-scm/doccenter/static/js/896.a1f2c74f.js:1
+[    3484ms] [ERROR] can no read vconsoleAppInfo from window object @ https://res.volccdn.com/obj/volc-console-fe/vcopilot-entry/web/static/js/9151.65f64c0d.js:109
+[    3537ms] [ERROR] can no read vconsoleAppInfo from window object @ https://res.volccdn.com/obj/volc-console-fe/vcopilot-entry/web/static/js/9151.65f64c0d.js:109
+[    3734ms] [LOG] useRequestData==> @ https://res.volccdn.com/obj/volc-console-fe/vcopilot-entry/web/static/js/main.1ca5a932.js:6
+[    3760ms] [WARNING] CommonJSONRPCProtocol: method vcopilot/set-ui-config already has request handler, override. @ https://res.volccdn.com/obj/volc-console-fe/vcopilot-entry/web/static/js/main.1ca5a932.js:2
+[    3761ms] [WARNING] CommonJSONRPCProtocol: method vcopilot/get-display-state already has request handler, override. @ https://res.volccdn.com/obj/volc-console-fe/vcopilot-entry/web/static/js/main.1ca5a932.js:2
+[    3761ms] [WARNING] CommonJSONRPCProtocol: method vcopilot/iframe/proxy-jsonrpc-notification already has notification handler, override. @ https://res.volccdn.com/obj/volc-console-fe/vcopilot-entry/web/static/js/main.1ca5a932.js:2

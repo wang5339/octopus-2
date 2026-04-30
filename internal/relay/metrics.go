@@ -14,6 +14,13 @@ import (
 	"github.com/bestruirui/octopus/internal/utils/log"
 )
 
+const (
+	logOmittedImageData     = "[image data omitted for storage]"
+	logOmittedAudioData     = "[audio data omitted for storage]"
+	logOmittedFileData      = "[file data omitted for storage]"
+	logOmittedEmbeddingData = "[embedding data omitted for storage]"
+)
+
 // RelayMetrics 负责最终的日志收集与持久化
 type RelayMetrics struct {
 	APIKeyID     int
@@ -160,7 +167,8 @@ func (m *RelayMetrics) saveLog(ctx context.Context, err error, duration time.Dur
 
 	// 请求内容
 	if m.InternalRequest != nil {
-		if reqJSON, jsonErr := json.Marshal(m.InternalRequest); jsonErr == nil {
+		reqForLog := m.filterRequestForLog(m.InternalRequest)
+		if reqJSON, jsonErr := json.Marshal(reqForLog); jsonErr == nil {
 			relayLog.RequestContent = string(reqJSON)
 		}
 	}
@@ -189,46 +197,111 @@ func (m *RelayMetrics) saveLog(ctx context.Context, err error, duration time.Dur
 	}
 }
 
-// filterResponseForLog 创建响应的浅拷贝，过滤掉 images、MultipleContent 中的图片数据和 Audio.Data 以减少存储压力
+// filterRequestForLog 创建请求的浅拷贝，过滤掉多模态大字段，避免图片/音频/文件
+// base64 原文进入 RelayLog.RequestContent 造成数据库与实时日志缓存膨胀。
+func (m *RelayMetrics) filterRequestForLog(req *transformerModel.InternalLLMRequest) *transformerModel.InternalLLMRequest {
+	if req == nil {
+		return nil
+	}
+
+	filtered := *req
+	if len(req.Messages) > 0 {
+		filtered.Messages = make([]transformerModel.Message, len(req.Messages))
+		for i := range req.Messages {
+			filtered.Messages[i] = *filterMessageForLog(&req.Messages[i])
+		}
+	}
+	return &filtered
+}
+
+// filterResponseForLog 创建响应的浅拷贝，过滤掉多模态大字段，减少日志存储压力。
 func (m *RelayMetrics) filterResponseForLog(resp *transformerModel.InternalLLMResponse) *transformerModel.InternalLLMResponse {
 	if resp == nil {
 		return nil
 	}
 
-	filterMsg := func(msg *transformerModel.Message) *transformerModel.Message {
-		if msg == nil {
-			return nil
+	filtered := *resp
+	if len(resp.Choices) > 0 {
+		filtered.Choices = make([]transformerModel.Choice, len(resp.Choices))
+		for i, choice := range resp.Choices {
+			filtered.Choices[i] = choice
+			filtered.Choices[i].Message = filterMessageForLog(choice.Message)
+			filtered.Choices[i].Delta = filterMessageForLog(choice.Delta)
 		}
-		c := *msg
-		c.Images = nil
-		if len(c.Content.MultipleContent) > 0 {
-			parts := make([]transformerModel.MessageContentPart, 0, len(c.Content.MultipleContent))
-			for _, p := range c.Content.MultipleContent {
-				if p.Type == "image_url" && p.ImageURL != nil {
-					parts = append(parts, transformerModel.MessageContentPart{
-						Type:     "image_url",
-						ImageURL: &transformerModel.ImageURL{URL: "[image data omitted for storage]"},
-					})
-				} else {
-					parts = append(parts, p)
+	}
+	if len(resp.ImageData) > 0 {
+		filtered.ImageData = make([]transformerModel.ImageObject, len(resp.ImageData))
+		for i, image := range resp.ImageData {
+			filtered.ImageData[i] = image
+			if image.B64JSON != nil && *image.B64JSON != "" {
+				omitted := logOmittedImageData
+				filtered.ImageData[i].B64JSON = &omitted
+			}
+		}
+	}
+	if len(resp.EmbeddingData) > 0 {
+		filtered.EmbeddingData = make([]transformerModel.EmbeddingObject, len(resp.EmbeddingData))
+		for i, embedding := range resp.EmbeddingData {
+			filtered.EmbeddingData[i] = embedding
+			if len(embedding.Embedding.FloatArray) > 0 || embedding.Embedding.Base64String != nil {
+				omitted := logOmittedEmbeddingData
+				filtered.EmbeddingData[i].Embedding = transformerModel.Embedding{
+					Base64String: &omitted,
 				}
 			}
-			c.Content = transformerModel.MessageContent{Content: c.Content.Content, MultipleContent: parts}
 		}
-		if c.Audio != nil && c.Audio.Data != "" {
-			a := *c.Audio
-			a.Data = "[audio data omitted for storage]"
-			c.Audio = &a
-		}
-		return &c
-	}
-
-	filtered := *resp
-	filtered.Choices = make([]transformerModel.Choice, len(resp.Choices))
-	for i, choice := range resp.Choices {
-		filtered.Choices[i] = choice
-		filtered.Choices[i].Message = filterMsg(choice.Message)
-		filtered.Choices[i].Delta = filterMsg(choice.Delta)
 	}
 	return &filtered
+}
+
+func filterMessageForLog(msg *transformerModel.Message) *transformerModel.Message {
+	if msg == nil {
+		return nil
+	}
+
+	filtered := *msg
+	filtered.Images = nil
+
+	if len(msg.Content.MultipleContent) > 0 {
+		parts := make([]transformerModel.MessageContentPart, len(msg.Content.MultipleContent))
+		for i, part := range msg.Content.MultipleContent {
+			parts[i] = filterContentPartForLog(part)
+		}
+		filtered.Content = transformerModel.MessageContent{
+			Content:         msg.Content.Content,
+			MultipleContent: parts,
+		}
+	}
+
+	if msg.Audio != nil && msg.Audio.Data != "" {
+		audio := *msg.Audio
+		audio.Data = logOmittedAudioData
+		filtered.Audio = &audio
+	}
+
+	return &filtered
+}
+
+func filterContentPartForLog(part transformerModel.MessageContentPart) transformerModel.MessageContentPart {
+	filtered := part
+
+	if part.ImageURL != nil {
+		imageURL := *part.ImageURL
+		imageURL.URL = logOmittedImageData
+		filtered.ImageURL = &imageURL
+	}
+
+	if part.Audio != nil && part.Audio.Data != "" {
+		audio := *part.Audio
+		audio.Data = logOmittedAudioData
+		filtered.Audio = &audio
+	}
+
+	if part.File != nil && part.File.FileData != "" {
+		file := *part.File
+		file.FileData = logOmittedFileData
+		filtered.File = &file
+	}
+
+	return filtered
 }

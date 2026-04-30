@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
+import { useCallback, useId, useMemo, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { KeyRound, Plus, Loader, Trash2, Check, X, Info, CalendarDays, Pencil, Maximize2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
@@ -512,13 +512,6 @@ function APIKeyKeyItem({
                 >
                     <Pencil className="size-4" />
                 </motion.button>
-                <CopyIconButton
-                    text={apiKey.api_key}
-                    className="flex size-8 items-center justify-center rounded-lg bg-primary/10 text-primary transition-all hover:bg-primary hover:text-primary-foreground active:scale-95"
-                    copyIconClassName="size-4"
-                    checkIconClassName="size-4"
-                />
-
                 {!confirmDelete && (
                     <motion.button
                         layoutId={deleteLayoutId}
@@ -588,6 +581,7 @@ function APIKeyPanelBase({
     const [viewingStats, setViewingStats] = useState<{ apiKey: APIKey; layoutId: string } | null>(null);
     const [editingKey, setEditingKey] = useState<{ apiKey: APIKey; layoutId: string } | null>(null);
     const [deletingId, setDeletingId] = useState<number | null>(null);
+    const [createdAPIKey, setCreatedAPIKey] = useState('');
 
     const sortedApiKeys = useMemo(() => {
         if (!apiKeys) return [];
@@ -618,7 +612,8 @@ function APIKeyPanelBase({
 
     const handleCreate = useCallback((data: Omit<APIKey, 'id' | 'api_key'>) => {
         createAPIKey.mutate(data, {
-            onSuccess: () => {
+            onSuccess: (created) => {
+                setCreatedAPIKey(created.api_key);
                 toast.success(t('apiKey.toast.createSuccess'));
                 setIsAdding(false);
             },
@@ -663,6 +658,36 @@ function APIKeyPanelBase({
                     {renderHeaderExtra?.({ disabled: disabledHeaderActions, onCloseAllOverlays: closeAllOverlays })}
                 </div>
             </div>
+
+            {createdAPIKey && (
+                <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 p-3 text-sm">
+                    <div className="mb-2 font-medium text-amber-700 dark:text-amber-300">
+                        {t('apiKey.created.onceTitle')}
+                    </div>
+                    <div className="flex items-center gap-2">
+                        <code className="flex-1 truncate rounded-lg bg-background px-3 py-2 font-mono text-xs">
+                            {createdAPIKey}
+                        </code>
+                        <CopyIconButton
+                            text={createdAPIKey}
+                            className="flex size-8 items-center justify-center rounded-lg bg-primary/10 text-primary transition-all hover:bg-primary hover:text-primary-foreground active:scale-95"
+                            copyIconClassName="size-4"
+                            checkIconClassName="size-4"
+                        />
+                        <button
+                            type="button"
+                            onClick={() => setCreatedAPIKey('')}
+                            className="flex size-8 items-center justify-center rounded-lg bg-muted/60 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                            title={t('apiKey.created.dismiss')}
+                        >
+                            <X className="size-4" />
+                        </button>
+                    </div>
+                    <p className="mt-2 text-xs text-muted-foreground">
+                        {t('apiKey.created.onceDesc')}
+                    </p>
+                </div>
+            )}
 
             <AnimatePresence>
                 {isAdding && (

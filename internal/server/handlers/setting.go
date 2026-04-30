@@ -97,6 +97,10 @@ func exportDB(c *gin.Context) {
 }
 
 func importDB(c *gin.Context) {
+	if !requireDestructiveConfirm(c, "import-db") {
+		return
+	}
+
 	var dump model.DBDump
 
 	contentType := c.GetHeader("Content-Type")
@@ -139,7 +143,10 @@ func importDB(c *gin.Context) {
 		return
 	}
 
-	_ = op.InitCache()
+	if err := op.InitCache(); err != nil {
+		resp.Error(c, http.StatusInternalServerError, "import succeeded but cache refresh failed: "+err.Error())
+		return
+	}
 
 	resp.Success(c, result)
 }
@@ -165,7 +172,6 @@ func decodeDBDump(body []byte, dump *model.DBDump) error {
 		len(dump.StatsHourly) == 0 &&
 		len(dump.StatsTotal) == 0 &&
 		len(dump.StatsChannel) == 0 &&
-		len(dump.StatsModel) == 0 &&
 		len(dump.StatsAPIKey) == 0 &&
 		len(dump.StatsGroup) == 0 {
 		var wrapper struct {

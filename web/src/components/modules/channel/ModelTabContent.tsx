@@ -40,6 +40,13 @@ function Checkbox({
     );
 }
 
+function getErrorMessage(error: unknown): string | undefined {
+    if (error && typeof error === 'object' && 'message' in error && typeof error.message === 'string') {
+        return error.message;
+    }
+    return undefined;
+}
+
 interface ModelTabContentProps {
     channel: Channel;
 }
@@ -56,6 +63,7 @@ export function ModelTabContent({ channel }: ModelTabContentProps) {
     const [testResults, setTestResults] = useState<Map<string, { passed: boolean; error?: string; delay?: number }>>(new Map());
     const [isTesting, setIsTesting] = useState(false);
     const [protocolResults, setProtocolResults] = useState<Map<string, ModelProtocolDetectResult>>(new Map());
+    const [dryRun, setDryRun] = useState(true);
 
     // 获取所有模型列表（auto + custom）
     const allModels = [
@@ -106,12 +114,22 @@ export function ModelTabContent({ channel }: ModelTabContentProps) {
         const modelsToDetect = selectedModels.size > 0 ? Array.from(selectedModels) : allModels;
         if (modelsToDetect.length === 0) return;
 
-        const results = await detectModelProtocols.mutateAsync({
-            id: channel.id,
-            models: modelsToDetect,
-        });
-        setProtocolResults(new Map(results.map((item) => [item.model, item])));
-        toast.success(t('modelProtocolDetectDone', { count: results.length }));
+        const requestCount = modelsToDetect.length * protocolOptions.length;
+        if (!dryRun && !window.confirm(t('realRequestConfirm', { count: requestCount }))) {
+            return;
+        }
+
+        try {
+            const results = await detectModelProtocols.mutateAsync({
+                id: channel.id,
+                models: modelsToDetect,
+                dry_run: dryRun,
+            });
+            setProtocolResults(new Map(results.map((item) => [item.model, item])));
+            toast.success(t('modelProtocolDetectDone', { count: results.length }));
+        } catch (error) {
+            toast.error(t('modelProtocolDetectFailed'), { description: getErrorMessage(error) });
+        }
     };
 
     const handleApplyRecommendedProtocols = async () => {
@@ -159,11 +177,16 @@ export function ModelTabContent({ channel }: ModelTabContentProps) {
         const modelsToTest = models ?? Array.from(selectedModels);
         if (modelsToTest.length === 0) return;
 
+        if (!dryRun && !window.confirm(t('realRequestConfirm', { count: modelsToTest.length }))) {
+            return;
+        }
+
         setIsTesting(true);
         try {
             const results = await testModels.mutateAsync({
                 channel_id: channel.id,
                 models: modelsToTest,
+                dry_run: dryRun,
             });
 
             // Convert array results to Map
@@ -176,6 +199,8 @@ export function ModelTabContent({ channel }: ModelTabContentProps) {
                 });
             }
             setTestResults(resultsMap);
+        } catch (error) {
+            toast.error(t('testFailed'), { description: getErrorMessage(error) });
         } finally {
             setIsTesting(false);
         }
@@ -261,6 +286,14 @@ export function ModelTabContent({ channel }: ModelTabContentProps) {
                                     {t('selectedCount', { count: selectedModels.size })}
                                 </span>
                             )}
+                            <label className="flex items-center gap-1.5 text-xs text-muted-foreground cursor-pointer">
+                                <Checkbox
+                                    checked={dryRun}
+                                    onChange={setDryRun}
+                                    ariaLabel={t('dryRun')}
+                                />
+                                {t('dryRun')}
+                            </label>
                             <Button
                                 type="button"
                                 variant="outline"

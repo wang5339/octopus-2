@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -123,5 +124,31 @@ func TestIsLocalDevOrigin(t *testing.T) {
 				t.Fatalf("isLocalDevOrigin(%q)=%v, want %v", tt.origin, got, tt.want)
 			}
 		})
+	}
+}
+
+func TestCorsAllowsDestructiveConfirmHeader(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	r := gin.New()
+	r.Use(Cors())
+	r.POST("/api/v1/setting/import", func(c *gin.Context) {
+		c.Status(http.StatusOK)
+	})
+
+	req := httptest.NewRequest(http.MethodOptions, "/api/v1/setting/import", nil)
+	req.Header.Set("Origin", "http://localhost:5173")
+	req.Header.Set("Access-Control-Request-Method", http.MethodPost)
+	req.Header.Set("Access-Control-Request-Headers", "X-Octopus-Confirm, Authorization")
+	w := httptest.NewRecorder()
+
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusNoContent {
+		t.Fatalf("expected CORS preflight status 204, got %d", w.Code)
+	}
+	allowHeaders := strings.ToLower(w.Header().Get("Access-Control-Allow-Headers"))
+	if !strings.Contains(allowHeaders, "x-octopus-confirm") {
+		t.Fatalf("expected Access-Control-Allow-Headers to include X-Octopus-Confirm, got %q", allowHeaders)
 	}
 }

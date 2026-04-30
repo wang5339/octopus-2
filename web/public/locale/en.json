@@ -203,6 +203,7 @@
                 "button": "Import JSON",
                 "importing": "Importing...",
                 "noFile": "Please select a JSON file first",
+                "confirm": "Importing a backup will incrementally write data into the current database and may change existing configuration. Import {filename}?",
                 "success": "Import successful",
                 "failed": "Import failed",
                 "result": "Import result"
@@ -246,6 +247,11 @@
                 "updateError": "Failed to update API key",
                 "deleteSuccess": "API key deleted",
                 "deleteError": "Failed to delete API key"
+            },
+            "created": {
+                "onceTitle": "API Key created. Copy it now.",
+                "onceDesc": "For security, the full key is shown only once. The list will only show a masked key afterwards.",
+                "dismiss": "Dismiss"
             }
         },
         "llmPrice": {
@@ -278,6 +284,8 @@
             "lastSync": "Last Sync",
             "neverSynced": "Never synced",
             "syncSuccess": "Channel synced successfully",
+            "syncStarted": "Channel sync started",
+            "syncAlreadyRunning": "Channel sync is already running. Please check the result later.",
             "syncFailed": "Failed to sync channel"
         },
         "account": {
@@ -308,20 +316,14 @@
         "info": {
             "title": "Version Info",
             "currentVersion": "Current Version",
-            "latestVersion": "Latest Version",
-            "buildTime": "Build Time",
-            "publishedAt": "Published At",
+            "deploymentMethod": "Deployment Method",
+            "dockerCompose": "Docker Compose",
+            "dockerComposeHint": "This project currently keeps Docker Compose as the only deployment path. In-app self-update is disabled. To upgrade, rebuild the image and recreate the container with docker compose up -d --force-recreate.",
             "github": "GitHub Repository",
             "unknown": "Unknown",
             "versionMismatch": "Version Mismatch",
             "versionMismatchHint": "Frontend version ({frontend}) does not match backend version ({backend}). This may be a browser cache issue. Please force refresh the page.",
-            "forceRefresh": "Force Refresh",
-            "newVersionAvailable": "New version available",
-            "newVersionAvailableHint": "Please backup your data first, then update the system",
-            "updateNow": "Update Now",
-            "updating": "Updating...",
-            "updateSuccess": "Update successful, service will restart shortly",
-            "updateFailed": "Update failed"
+            "forceRefresh": "Force Refresh"
         },
         "log": {
             "title": "Log Settings",
@@ -338,7 +340,8 @@
             "clear": {
                 "label": "Clear History Logs",
                 "button": "Clear",
-                "clearing": "Clearing..."
+                "clearing": "Clearing...",
+                "confirm": "Clearing history logs will delete log records from the current cache and database. This cannot be undone. Continue?"
             },
             "clearSuccess": "Logs cleared",
             "clearFailed": "Failed to clear logs"
@@ -553,13 +556,7 @@
             "typeGemini": "Gemini",
             "typeVolcengine": "Volcengine",
             "typeOpenAIImageGeneration": "OpenAI Image Generation",
-            "typeGithubCopilot": "GitHub Copilot",
-            "typeAntigravity": "Antigravity",
             "typeZen": "OpenCode Zen",
-            "githubCopilotHint": "GitHub Copilot requires OAuth Device Flow authentication",
-            "githubCopilotHintDesc": "Please complete the device authorization flow on GitHub to obtain an access token, then paste it into the API Key field below. Automatic authorization is not yet supported.",
-            "antigravityHint": "Antigravity requires OAuth Web Flow authentication",
-            "antigravityHintDesc": "Please complete the OAuth authorization on the Antigravity website to obtain an API token, then paste it into the API Key field below.",
             "autoSync": "Auto Sync",
             "autoGroup": "Auto Group",
             "autoGroupNone": "None",
@@ -582,31 +579,14 @@
             "testNeedBaseUrlAndKey": "Please fill in Base URL and API Key first",
             "testResultTitle": "Test Results",
             "testResultSummary": "{total} models tested, {passed} passed",
-            "copilotDeviceFlow": "GitHub Device Flow Authorization",
-            "copilotStartAuth": "Start GitHub Authorization",
-            "copilotUserCodeHint": "Open the authorization page in your browser and enter the code below:",
-            "copilotOpenGitHub": "Open GitHub Authorization Page",
-            "copilotWaiting": "Waiting for authorization, please complete the steps on GitHub...",
-            "copilotCodeCopied": "Code copied",
-            "copilotSuccess": "Authorized successfully, API Token has been filled in",
-            "copilotExpired": "Authorization code expired, please start again",
-            "copilotDenied": "Authorization denied",
-            "copilotRetry": "Retry Authorization",
-            "copilotError": "Authorization failed, please retry",
             "fetchedModelList": "Fetched Models",
             "modelSelectAllFetched": "Select All Fetched",
             "modelClearFetched": "Clear Fetched",
-            "antigravityOAuthTitle": "Antigravity Web Authorization",
-            "antigravityConfigHint": "Uses built-in default OAuth app (Gemini CLI). You can override via OCTOPUS_ANTIGRAVITY_CLIENT_ID / CLIENT_SECRET environment variables",
-            "antigravityStartAuth": "Start Antigravity Authorization",
-            "antigravityWaiting": "Waiting for web authorization, finish it in the new window...",
-            "antigravityOpenAgain": "Open Authorization Page Again",
-            "antigravitySuccess": "Authorized, token has been filled automatically",
-            "antigravityRetry": "Retry Authorization",
-            "antigravityAuthFailed": "Antigravity authorization failed",
             "upstreamIgnoredModels": "Ignored upstream models",
             "upstreamIgnoredModelsPlaceholder": "Example: gpt-4.1-nano,regex:^sora-.*$, comma separated",
-            "upstreamIgnoredModelsHelp": "Auto sync and manual detection skip these new models. Exact names and regex: rules are supported."
+            "upstreamIgnoredModelsHelp": "Auto sync and manual detection skip these new models. Exact names and regex: rules are supported.",
+            "dryRun": "Transform only (do not call upstream)",
+            "realRequestConfirm": "This action will send {count} real upstream request(s), which may incur cost or trigger rate limits. Continue?"
         },
         "models": {
             "selectAll": "Select All",
@@ -639,11 +619,14 @@
             "modelProtocolDetect": "Detect protocol",
             "modelProtocolDetecting": "Detecting",
             "modelProtocolDetectDone": "Detected protocols for {count} models",
+            "modelProtocolDetectFailed": "Protocol detection failed",
             "modelProtocolApplyRecommended": "Apply recommendations",
             "modelProtocolApplyDone": "Applied {count} protocol recommendations",
             "modelProtocolRecommended": "Recommended",
             "modelProtocolProbeSummary": "Protocols {passed}/{total}",
-            "modelProtocolNoRecommendation": "No recommendation"
+            "modelProtocolNoRecommendation": "No recommendation",
+            "dryRun": "Transform only (do not call upstream)",
+            "realRequestConfirm": "This action will send {count} real upstream request(s), which may incur cost or trigger rate limits. Continue?"
         }
     },
     "doc": {

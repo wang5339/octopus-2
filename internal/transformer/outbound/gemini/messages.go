@@ -5,13 +5,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"net/url"
 	"reflect"
 	"strings"
 
 	"github.com/bestruirui/octopus/internal/transformer/model"
+	"github.com/bestruirui/octopus/internal/transformer/outbound/responsebody"
 	"github.com/bestruirui/octopus/internal/utils/xurl"
 	"github.com/samber/lo"
 )
@@ -67,7 +67,7 @@ func (o *MessagesOutbound) TransformRequest(ctx context.Context, request *model.
 }
 
 func (o *MessagesOutbound) TransformResponse(ctx context.Context, response *http.Response) (*model.InternalLLMResponse, error) {
-	body, err := io.ReadAll(response.Body)
+	body, err := responsebody.ReadAll(response.Body)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read response body: %w", err)
 	}
@@ -141,13 +141,13 @@ func audioTypeToMimeType(format string) string {
 }
 
 // ConvertLLMToGeminiRequest converts an internal LLM request to a Gemini GenerateContentRequest.
-// Exported for use by other outbound adapters (e.g. antigravity).
+// Exported for use by protocol-routing adapters.
 func ConvertLLMToGeminiRequest(request *model.InternalLLMRequest) *model.GeminiGenerateContentRequest {
 	return convertLLMToGeminiRequest(request)
 }
 
 // ConvertGeminiToLLMResponse converts a Gemini response to an internal LLM response.
-// Exported for use by other outbound adapters (e.g. antigravity).
+// Exported for use by protocol-routing adapters.
 func ConvertGeminiToLLMResponse(geminiResp *model.GeminiGenerateContentResponse, isStream bool) *model.InternalLLMResponse {
 	return convertGeminiToLLMResponse(geminiResp, isStream)
 }

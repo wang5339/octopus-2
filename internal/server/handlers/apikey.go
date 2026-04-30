@@ -15,6 +15,28 @@ import (
 	"github.com/samber/lo"
 )
 
+type apiKeyResponse struct {
+	ID              int     `json:"id"`
+	Name            string  `json:"name"`
+	APIKey          string  `json:"api_key"`
+	Enabled         bool    `json:"enabled"`
+	ExpireAt        int64   `json:"expire_at,omitempty"`
+	MaxCost         float64 `json:"max_cost,omitempty"`
+	SupportedModels string  `json:"supported_models,omitempty"`
+}
+
+func newAPIKeyResponse(apiKey model.APIKey) apiKeyResponse {
+	return apiKeyResponse{
+		ID:              apiKey.ID,
+		Name:            apiKey.Name,
+		APIKey:          apiKey.APIKey,
+		Enabled:         apiKey.Enabled,
+		ExpireAt:        apiKey.ExpireAt,
+		MaxCost:         apiKey.MaxCost,
+		SupportedModels: apiKey.SupportedModels,
+	}
+}
+
 func init() {
 	router.NewGroupRouter("/api/v1/apikey").
 		Use(middleware.Auth()).
@@ -58,7 +80,8 @@ func createAPIKey(c *gin.Context) {
 		resp.Error(c, http.StatusInternalServerError, err.Error())
 		return
 	}
-	resp.Success(c, req)
+	// 仅创建响应返回一次明文 key；后续列表/统计只返回 masked key。
+	resp.Success(c, newAPIKeyResponse(req))
 }
 
 func listAPIKey(c *gin.Context) {
@@ -67,23 +90,67 @@ func listAPIKey(c *gin.Context) {
 		resp.Error(c, http.StatusInternalServerError, err.Error())
 		return
 	}
-	resp.Success(c, apiKeys)
+	result := make([]apiKeyResponse, 0, len(apiKeys))
+	for _, apiKey := range apiKeys {
+		result = append(result, newAPIKeyResponse(apiKey))
+	}
+	resp.Success(c, result)
+}
+
+type updateAPIKeyRequest struct {
+	ID              int      `json:"id"`
+	Name            *string  `json:"name,omitempty"`
+	Enabled         *bool    `json:"enabled,omitempty"`
+	ExpireAt        *int64   `json:"expire_at,omitempty"`
+	MaxCost         *float64 `json:"max_cost,omitempty"`
+	SupportedModels *string  `json:"supported_models,omitempty"`
+}
+
+func (req updateAPIKeyRequest) applyTo(key *model.APIKey) {
+	if req.Name != nil {
+		key.Name = *req.Name
+	}
+	if req.Enabled != nil {
+		key.Enabled = *req.Enabled
+	}
+	if req.ExpireAt != nil {
+		key.ExpireAt = *req.ExpireAt
+	}
+	if req.MaxCost != nil {
+		key.MaxCost = *req.MaxCost
+	}
+	if req.SupportedModels != nil {
+		key.SupportedModels = *req.SupportedModels
+	}
 }
 
 func updateAPIKey(c *gin.Context) {
-	var req model.APIKey
+	var req updateAPIKeyRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		resp.Error(c, http.StatusBadRequest, resp.ErrInvalidJSON)
 		return
 	}
-	if err := op.APIKeyUpdate(&req, c.Request.Context()); err != nil {
+	if req.ID == 0 {
+		resp.Error(c, http.StatusBadRequest, resp.ErrInvalidParam)
+		return
+	}
+	apiKey, err := op.APIKeyGet(req.ID, c.Request.Context())
+	if err != nil {
 		resp.Error(c, http.StatusInternalServerError, err.Error())
 		return
 	}
-	resp.Success(c, req)
+	req.applyTo(&apiKey)
+	if err := op.APIKeyUpdate(&apiKey, c.Request.Context()); err != nil {
+		resp.Error(c, http.StatusInternalServerError, err.Error())
+		return
+	}
+	resp.Success(c, newAPIKeyResponse(apiKey))
 }
 
 func deleteAPIKey(c *gin.Context) {
+	if !requireDestructiveConfirm(c, "delete-apikey") {
+		return
+	}
 	id := c.Param("id")
 	idNum, err := strconv.Atoi(id)
 	if err != nil {
@@ -125,7 +192,7 @@ func getStatsAPIKeyById(c *gin.Context) {
 	info.SupportedModels = modelsString
 	resp.Success(c, map[string]any{
 		"stats": stats,
-		"info":  info,
+		"info":  newAPIKeyResponse(info),
 	})
 }
 

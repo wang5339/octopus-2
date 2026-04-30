@@ -15,6 +15,7 @@ import (
 
 const relayLogMaxSize = 20
 const relayLogMaxSizeNoDB = 100 // 当不保存到数据库时，允许更大的缓存用于实时查询
+const relayLogStreamTokenTTL = time.Minute
 
 var relayLogCache = make([]model.RelayLog, 0, relayLogMaxSize)
 var relayLogCacheLock sync.Mutex
@@ -24,7 +25,7 @@ var relayLogFlushLock sync.Mutex
 var relayLogSubscribers = make(map[chan model.RelayLog]struct{})
 var relayLogSubscribersLock sync.RWMutex
 
-var relayLogStreamTokens = make(map[string]struct{})
+var relayLogStreamTokens = make(map[string]time.Time)
 var relayLogStreamTokensLock sync.RWMutex
 
 func RelayLogStreamTokenCreate() (string, error) {
@@ -34,24 +35,58 @@ func RelayLogStreamTokenCreate() (string, error) {
 	}
 	token := hex.EncodeToString(bytes)
 
+	now := time.Now()
 	relayLogStreamTokensLock.Lock()
-	relayLogStreamTokens[token] = struct{}{}
+	cleanupExpiredRelayLogStreamTokensLocked(now)
+	relayLogStreamTokens[token] = now.Add(relayLogStreamTokenTTL)
 	relayLogStreamTokensLock.Unlock()
 
 	return token, nil
 }
 
 func RelayLogStreamTokenVerify(token string) bool {
-	relayLogStreamTokensLock.RLock()
-	_, ok := relayLogStreamTokens[token]
-	relayLogStreamTokensLock.RUnlock()
-	return ok
+	now := time.Now()
+	relayLogStreamTokensLock.Lock()
+	expiresAt, ok := relayLogStreamTokens[token]
+	if !ok {
+		relayLogStreamTokensLock.Unlock()
+		return false
+	}
+	if !expiresAt.After(now) {
+		delete(relayLogStreamTokens, token)
+		relayLogStreamTokensLock.Unlock()
+		return false
+	}
+	relayLogStreamTokensLock.Unlock()
+	return true
+}
+
+func RelayLogStreamTokenConsume(token string) bool {
+	now := time.Now()
+	relayLogStreamTokensLock.Lock()
+	defer relayLogStreamTokensLock.Unlock()
+
+	expiresAt, ok := relayLogStreamTokens[token]
+	if !ok {
+		return false
+	}
+
+	delete(relayLogStreamTokens, token)
+	return expiresAt.After(now)
 }
 
 func RelayLogStreamTokenRevoke(token string) {
 	relayLogStreamTokensLock.Lock()
 	delete(relayLogStreamTokens, token)
 	relayLogStreamTokensLock.Unlock()
+}
+
+func cleanupExpiredRelayLogStreamTokensLocked(now time.Time) {
+	for token, expiresAt := range relayLogStreamTokens {
+		if !expiresAt.After(now) {
+			delete(relayLogStreamTokens, token)
+		}
+	}
 }
 
 func RelayLogSubscribe() chan model.RelayLog {
@@ -218,6 +253,10 @@ func RelayLogList(ctx context.Context, startTime, endTime *int, page, pageSize i
 	offset := (page - 1) * pageSize
 
 	var result []model.RelayLog
+	cachedIDs := make([]int64, 0, len(cachedLogs))
+	for _, log := range cachedLogs {
+		cachedIDs = append(cachedIDs, log.ID)
+	}
 
 	// 先从缓存中取（缓存是最新的日志）
 	if offset < cacheCount {
@@ -240,6 +279,9 @@ func RelayLogList(ctx context.Context, startTime, endTime *int, page, pageSize i
 			query := db.GetDB().WithContext(ctx)
 			if hasTimeFilter {
 				query = query.Where("time >= ? AND time <= ?", *startTime, *endTime)
+			}
+			if len(cachedIDs) > 0 {
+				query = query.Where("id NOT IN ?", cachedIDs)
 			}
 
 			var dbLogs []model.RelayLog

@@ -87,6 +87,8 @@ export interface DBExportOptions {
     include_stats?: boolean;
 }
 
+const DB_BACKUP_TIMEOUT_MS = 120_000;
+
 type ApiResponse<T> = {
     code?: number;
     message?: string;
@@ -112,6 +114,25 @@ function getAuthHeader(): string {
     const token = useAuthStore.getState().token;
     if (!token) throw new Error('Not authenticated');
     return `Bearer ${token}`;
+}
+
+async function fetchWithTimeout(input: RequestInfo | URL, init: RequestInit, timeoutMs: number) {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+    try {
+        return await fetch(input, {
+            ...init,
+            signal: controller.signal,
+        });
+    } catch (error) {
+        if (error instanceof Error && error.name === 'AbortError') {
+            throw new Error(`Request timed out after ${timeoutMs}ms`);
+        }
+        throw error;
+    } finally {
+        clearTimeout(timeoutId);
+    }
 }
 
 function parseFilename(contentDisposition: string | null): string | null {
@@ -152,16 +173,22 @@ export function useExportDB() {
             params.set('include_logs', String(!!options.include_logs));
             params.set('include_stats', String(!!options.include_stats));
 
-            const res = await fetch(`${API_BASE_URL}/api/v1/setting/export?${params.toString()}`, {
-                method: 'GET',
-                headers: {
-                    Authorization: getAuthHeader(),
+            const res = await fetchWithTimeout(
+                `${API_BASE_URL}/api/v1/setting/export?${params.toString()}`,
+                {
+                    method: 'GET',
+                    headers: {
+                        Authorization: getAuthHeader(),
+                    },
                 },
-            });
+                DB_BACKUP_TIMEOUT_MS
+            );
 
             if (!res.ok) {
-                const text = await res.text();
-                throw new Error(text || res.statusText);
+                const contentType = res.headers.get('content-type') || '';
+                const data = contentType.includes('application/json') ? await res.json() : await res.text();
+                const message = getMessageField(data) ?? (typeof data === 'string' ? data : res.statusText);
+                throw new Error(message);
             }
 
             const blob = await res.blob();
@@ -184,13 +211,18 @@ export function useImportDB() {
             const form = new FormData();
             form.append('file', file);
 
-            const res = await fetch(`${API_BASE_URL}/api/v1/setting/import`, {
-                method: 'POST',
-                headers: {
-                    Authorization: getAuthHeader(),
+            const res = await fetchWithTimeout(
+                `${API_BASE_URL}/api/v1/setting/import`,
+                {
+                    method: 'POST',
+                    headers: {
+                        Authorization: getAuthHeader(),
+                        'X-Octopus-Confirm': 'import-db',
+                    },
+                    body: form,
                 },
-                body: form,
-            });
+                DB_BACKUP_TIMEOUT_MS
+            );
 
             const contentType = res.headers.get('content-type') || '';
             const isJson = contentType.includes('application/json');
@@ -210,4 +242,3 @@ export function useImportDB() {
         },
     });
 }
-

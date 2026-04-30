@@ -1,0 +1,67 @@
+- generic [ref=e4]:
+  - generic [ref=e10]:
+    - link [ref=e12] [cursor=pointer]:
+      - /url: //www.volcengine.com
+    - img [ref=e17] [cursor=pointer]
+    - generic [ref=e23]:
+      - combobox [ref=e25] [cursor=pointer]:
+        - generic "简体" [ref=e26]:
+          - img [ref=e28]
+      - img [ref=e32] [cursor=pointer]
+  - generic [ref=e36]:
+    - generic [ref=e37]:
+      - generic [ref=e38]:
+        - button "open" [ref=e39] [cursor=pointer]:
+          - img "open" [ref=e40]
+        - generic [ref=e41] [cursor=pointer]: 火山方舟
+      - generic [ref=e43]:
+        - generic [ref=e44] [cursor=pointer]: 文档指南
+        - generic [ref=e45] [cursor=pointer]: API参考
+        - generic [ref=e46] [cursor=pointer]: 资源
+    - generic [ref=e47]:
+      - generic [ref=e54]:
+        - paragraph [ref=e55]: 火山方舟
+        - img [ref=e56]
+      - generic [ref=e64]:
+        - generic [ref=e65]:
+          - list [ref=e66]:
+            - listitem [ref=e67] [cursor=pointer]: 文档首页
+            - generic [ref=e69] [cursor=pointer]: 火山方舟
+            - generic [ref=e71] [cursor=pointer]: Responses API
+            - generic [ref=e73] [cursor=pointer]: 创建模型响应
+          - generic [ref=e76]:
+            - generic [ref=e77]:
+              - generic [ref=e79] [cursor=pointer]:
+                - generic [ref=e81]: 复制全文
+                - img [ref=e83]
+              - generic [ref=e86] [cursor=pointer]:
+                - generic [ref=e88]: 下载 pdf
+                - img [ref=e90]
+            - generic [ref=e92]:
+              - img [ref=e94] [cursor=pointer]
+              - img [ref=e98] [cursor=pointer]
+            - link "我的收藏" [ref=e102] [cursor=pointer]:
+              - /url: /docs/favorite
+        - generic [ref=e103]: 创建模型响应
+        - img [ref=e110]
+        - generic [ref=e113]:
+          - generic [ref=e115]: 最近更新时间：2026.04.25 18:08:26
+          - generic [ref=e117]:
+            - generic [ref=e118]: 这个页面对您有帮助吗？
+            - generic [ref=e121] [cursor=pointer]:
+              - img [ref=e122]
+              - generic [ref=e124]: 有用
+            - generic [ref=e127] [cursor=pointer]:
+              - img [ref=e128]
+              - generic [ref=e130]: 无用
+        - generic [ref=e131]:
+          - link "上一篇： 对话(Chat) API" [ref=e132] [cursor=pointer]:
+            - /url: /docs/82379/1494384
+            - img [ref=e133]
+            - generic [ref=e135]: 上一篇：
+            - generic [ref=e138]: 对话(Chat) API
+          - link "查询模型响应 下一篇" [ref=e139] [cursor=pointer]:
+            - /url: /docs/82379/1783709
+            - generic [ref=e142]: 查询模型响应
+            - generic [ref=e144]: 下一篇
+            - img [ref=e145]

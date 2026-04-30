@@ -398,6 +398,10 @@ func channelRefreshCache(ctx context.Context) error {
 		log.Warnf("failed to get channels: %v", err)
 		return err
 	}
+	channelUpdateLock.Lock()
+	defer channelUpdateLock.Unlock()
+
+	channelCache.Clear()
 	channelKeyCache.Clear()
 	channelKeyCacheNeedUpdateLock.Lock()
 	channelKeyCacheNeedUpdate = make(map[int]struct{})
@@ -414,13 +418,6 @@ func channelRefreshCache(ctx context.Context) error {
 }
 
 func channelRefreshCacheByID(id int, ctx context.Context) error {
-	if old, ok := channelCache.Get(id); ok {
-		for _, k := range old.Keys {
-			if k.ID != 0 {
-				channelKeyCache.Del(k.ID)
-			}
-		}
-	}
 	var channel model.Channel
 	if err := db.GetDB().WithContext(ctx).
 		Preload("Keys").
@@ -428,6 +425,19 @@ func channelRefreshCacheByID(id int, ctx context.Context) error {
 		First(&channel, id).Error; err != nil {
 		return err
 	}
+
+	channelUpdateLock.Lock()
+	defer channelUpdateLock.Unlock()
+
+	dirtyRuntimeKeys := snapshotDirtyChannelKeysLocked(id)
+	if old, ok := channelCache.Get(id); ok {
+		for _, k := range old.Keys {
+			if k.ID != 0 {
+				channelKeyCache.Del(k.ID)
+			}
+		}
+	}
+	mergeDirtyRuntimeKeys(&channel, dirtyRuntimeKeys)
 	channelCache.Set(channel.ID, channel)
 	for _, k := range channel.Keys {
 		if k.ID != 0 {
@@ -435,4 +445,38 @@ func channelRefreshCacheByID(id int, ctx context.Context) error {
 		}
 	}
 	return nil
+}
+
+func snapshotDirtyChannelKeysLocked(channelID int) map[int]model.ChannelKey {
+	channelKeyCacheNeedUpdateLock.Lock()
+	dirtyIDs := make([]int, 0, len(channelKeyCacheNeedUpdate))
+	for id := range channelKeyCacheNeedUpdate {
+		dirtyIDs = append(dirtyIDs, id)
+	}
+	channelKeyCacheNeedUpdateLock.Unlock()
+
+	dirtyKeys := make(map[int]model.ChannelKey, len(dirtyIDs))
+	for _, id := range dirtyIDs {
+		key, ok := channelKeyCache.Get(id)
+		if ok && key.ChannelID == channelID {
+			dirtyKeys[id] = key
+		}
+	}
+	return dirtyKeys
+}
+
+func mergeDirtyRuntimeKeys(channel *model.Channel, dirtyKeys map[int]model.ChannelKey) {
+	if channel == nil || len(dirtyKeys) == 0 {
+		return
+	}
+	for i := range channel.Keys {
+		dirtyKey, ok := dirtyKeys[channel.Keys[i].ID]
+		if !ok {
+			continue
+		}
+		// 只合并运行态字段，避免覆盖管理员刚刚更新的 key 明文、启用状态或备注。
+		channel.Keys[i].StatusCode = dirtyKey.StatusCode
+		channel.Keys[i].LastUseTimeStamp = dirtyKey.LastUseTimeStamp
+		channel.Keys[i].TotalCost = dirtyKey.TotalCost
+	}
 }

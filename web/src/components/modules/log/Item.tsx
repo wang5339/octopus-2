@@ -104,24 +104,26 @@ function DeferredJsonContent({ content, fallbackText }: { content: string | unde
     const { isOpen } = useMorphingDialog();
     const [shouldRender, setShouldRender] = useState(false);
 
+    const shouldParseContent = isOpen && shouldRender && !!content;
     const parsed = useMemo(() => {
-        if (!content) return { isJson: false, data: null };
+        if (!shouldParseContent || !content) return { isJson: false, data: null };
         try {
             return { isJson: true, data: JSON.parse(content) };
         } catch {
             return { isJson: false, data: content };
         }
-    }, [content]);
+    }, [content, shouldParseContent]);
 
     useEffect(() => {
-        if (isOpen) {
-            const timer = setTimeout(() => setShouldRender(true), 300);
-            return () => clearTimeout(timer);
+        if (!isOpen || shouldRender) {
+            return;
         }
-    }, [isOpen]);
+
+        const timer = setTimeout(() => setShouldRender(true), 300);
+        return () => clearTimeout(timer);
+    }, [isOpen, shouldRender]);
 
     if (!isOpen) {
-        if (shouldRender) setShouldRender(false);
         return null;
     }
 

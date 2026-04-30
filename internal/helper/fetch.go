@@ -4,13 +4,18 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 
 	"github.com/bestruirui/octopus/internal/model"
 	"github.com/bestruirui/octopus/internal/transformer/outbound"
-	"github.com/bestruirui/octopus/internal/transformer/outbound/copilot"
 	"github.com/dlclark/regexp2"
+)
+
+const (
+	fetchModelsMaxResponseBytes = 4 << 20 // 4 MiB，避免异常上游返回超大响应拖垮进程。
+	fetchModelsMaxErrorBytes    = 1024
 )
 
 func FetchModels(ctx context.Context, request model.Channel) ([]string, error) {
@@ -24,10 +29,6 @@ func FetchModels(ctx context.Context, request model.Channel) ([]string, error) {
 		fetchModel, err = fetchAnthropicModels(client, ctx, request)
 	case outbound.OutboundTypeGemini:
 		fetchModel, err = fetchGeminiModels(client, ctx, request)
-	case outbound.OutboundTypeAntigravity:
-		fetchModel, err = fetchAntigravityModels(client, ctx, request)
-	case outbound.OutboundTypeGithubCopilot:
-		fetchModel, err = fetchCopilotModels(client, ctx, request)
 	default:
 		fetchModel, err = fetchOpenAIModels(client, ctx, request)
 	}
@@ -56,28 +57,26 @@ func FetchModels(ctx context.Context, request model.Channel) ([]string, error) {
 
 // refer: https://platform.openai.com/docs/api-reference/models/list
 func fetchOpenAIModels(client *http.Client, ctx context.Context, request model.Channel) ([]string, error) {
-	req, _ := http.NewRequestWithContext(
+	req, err := http.NewRequestWithContext(
 		ctx,
 		http.MethodGet,
-		request.GetBaseUrl()+"/models",
+		fetchModelsURL(request),
 		nil,
 	)
-	req.Header.Set("Authorization", "Bearer "+request.GetChannelKey().ChannelKey)
-	for _, header := range request.CustomHeader {
-		if header.HeaderKey != "" {
-			req.Header.Set(header.HeaderKey, header.HeaderValue)
-		}
+	if err != nil {
+		return nil, fmt.Errorf("create OpenAI models request: %w", err)
 	}
+	req.Header.Set("Authorization", "Bearer "+request.GetChannelKey().ChannelKey)
+	applyFetchModelsCustomHeaders(req, request)
 
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
 
 	var result model.OpenAIModelList
 
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+	if err := decodeFetchModelsResponse(resp, "OpenAI", &result); err != nil {
 		return nil, err
 	}
 
@@ -101,18 +100,17 @@ func fetchGeminiModels(client *http.Client, ctx context.Context, request model.C
 		}
 		pageCount++
 
-		req, _ := http.NewRequestWithContext(
+		req, err := http.NewRequestWithContext(
 			ctx,
 			http.MethodGet,
-			request.GetBaseUrl()+"/models",
+			fetchModelsURL(request),
 			nil,
 		)
-		req.Header.Set("X-Goog-Api-Key", request.GetChannelKey().ChannelKey)
-		for _, header := range request.CustomHeader {
-			if header.HeaderKey != "" {
-				req.Header.Set(header.HeaderKey, header.HeaderValue)
-			}
+		if err != nil {
+			return nil, fmt.Errorf("create Gemini models request: %w", err)
 		}
+		req.Header.Set("X-Goog-Api-Key", request.GetChannelKey().ChannelKey)
+		applyFetchModelsCustomHeaders(req, request)
 		if pageToken != "" {
 			q := req.URL.Query()
 			q.Add("pageToken", pageToken)
@@ -126,9 +124,7 @@ func fetchGeminiModels(client *http.Client, ctx context.Context, request model.C
 
 		var result model.GeminiModelList
 
-		err = json.NewDecoder(resp.Body).Decode(&result)
-		resp.Body.Close()
-		if err != nil {
+		if err := decodeFetchModelsResponse(resp, "Gemini", &result); err != nil {
 			return nil, err
 		}
 
@@ -137,10 +133,14 @@ func fetchGeminiModels(client *http.Client, ctx context.Context, request model.C
 			allModels = append(allModels, name)
 		}
 
-		if result.NextPageToken == "" {
+		nextPageToken := strings.TrimSpace(result.NextPageToken)
+		if nextPageToken == "" {
 			break
 		}
-		pageToken = result.NextPageToken
+		if nextPageToken == pageToken {
+			return nil, fmt.Errorf("Gemini models pagination did not advance: pageToken %q", pageToken)
+		}
+		pageToken = nextPageToken
 	}
 	if len(allModels) == 0 {
 		return fetchOpenAIModels(client, ctx, request)
@@ -162,19 +162,18 @@ func fetchAnthropicModels(client *http.Client, ctx context.Context, request mode
 		}
 		pageCount++
 
-		req, _ := http.NewRequestWithContext(
+		req, err := http.NewRequestWithContext(
 			ctx,
 			http.MethodGet,
-			request.GetBaseUrl()+"/models",
+			fetchModelsURL(request),
 			nil,
 		)
+		if err != nil {
+			return nil, fmt.Errorf("create Anthropic models request: %w", err)
+		}
 		req.Header.Set("X-Api-Key", request.GetChannelKey().ChannelKey)
 		req.Header.Set("Anthropic-Version", "2023-06-01")
-		for _, header := range request.CustomHeader {
-			if header.HeaderKey != "" {
-				req.Header.Set(header.HeaderKey, header.HeaderValue)
-			}
-		}
+		applyFetchModelsCustomHeaders(req, request)
 		// 设置多页参数
 		q := req.URL.Query()
 
@@ -190,9 +189,7 @@ func fetchAnthropicModels(client *http.Client, ctx context.Context, request mode
 
 		var result model.AnthropicModelList
 
-		err = json.NewDecoder(resp.Body).Decode(&result)
-		resp.Body.Close()
-		if err != nil {
+		if err := decodeFetchModelsResponse(resp, "Anthropic", &result); err != nil {
 			return nil, err
 		}
 
@@ -204,7 +201,14 @@ func fetchAnthropicModels(client *http.Client, ctx context.Context, request mode
 			break
 		}
 
-		afterID = result.LastID
+		nextAfterID := strings.TrimSpace(result.LastID)
+		if nextAfterID == "" {
+			return nil, fmt.Errorf("Anthropic models pagination has_more=true but last_id is empty")
+		}
+		if nextAfterID == afterID {
+			return nil, fmt.Errorf("Anthropic models pagination did not advance: after_id %q", afterID)
+		}
+		afterID = nextAfterID
 	}
 	if len(allModels) == 0 {
 		return fetchOpenAIModels(client, ctx, request)
@@ -212,137 +216,46 @@ func fetchAnthropicModels(client *http.Client, ctx context.Context, request mode
 	return allModels, nil
 }
 
-// fetchAntigravityModels retrieves models for Antigravity (Google Gemini Code Assist via OAuth).
-// It calls POST /v1internal:retrieveUserQuota to get quota buckets, each containing a modelId.
-// Key format: "<oauth_token>" or "<oauth_token>|<projectId>"
-func fetchAntigravityModels(client *http.Client, ctx context.Context, request model.Channel) ([]string, error) {
-	key := request.GetChannelKey().ChannelKey
-	keyParts := strings.SplitN(key, "|", 2)
-	token := keyParts[0]
-
-	// Determine project ID: from key suffix or from loadCodeAssist
-	projectID := ""
-	if len(keyParts) == 2 {
-		projectID = keyParts[1]
-	} else {
-		// Call loadCodeAssist to get the managed project ID
-		loadBody := `{"metadata":{"ideType":"IDE_UNSPECIFIED","platform":"PLATFORM_UNSPECIFIED","pluginType":"GEMINI"}}`
-		loadReq, err := http.NewRequestWithContext(ctx, http.MethodPost,
-			request.GetBaseUrl()+"/v1internal:loadCodeAssist",
-			strings.NewReader(loadBody))
-		if err != nil {
-			return nil, err
-		}
-		loadReq.Header.Set("Authorization", "Bearer "+token)
-		loadReq.Header.Set("Content-Type", "application/json")
-		loadReq.Header.Set("X-Goog-Api-Client", "gl-node/22.17.0")
-		loadReq.Header.Set("Client-Metadata", "ideType=IDE_UNSPECIFIED,platform=PLATFORM_UNSPECIFIED,pluginType=GEMINI")
-
-		loadResp, err := client.Do(loadReq)
-		if err != nil {
-			return nil, err
-		}
-		defer loadResp.Body.Close()
-
-		var loadPayload struct {
-			CloudAiCompanionProject interface{} `json:"cloudaicompanionProject"`
-		}
-		if err := json.NewDecoder(loadResp.Body).Decode(&loadPayload); err != nil {
-			return nil, err
-		}
-		switch v := loadPayload.CloudAiCompanionProject.(type) {
-		case string:
-			projectID = strings.TrimSpace(v)
-		case map[string]interface{}:
-			if id, ok := v["id"].(string); ok {
-				projectID = strings.TrimSpace(id)
-			}
-		}
-	}
-
-	// Call retrieveUserQuota to get available models
-	quotaBody := `{"project":"` + projectID + `"}`
-	quotaReq, err := http.NewRequestWithContext(ctx, http.MethodPost,
-		request.GetBaseUrl()+"/v1internal:retrieveUserQuota",
-		strings.NewReader(quotaBody))
-	if err != nil {
-		return nil, err
-	}
-	quotaReq.Header.Set("Authorization", "Bearer "+token)
-	quotaReq.Header.Set("Content-Type", "application/json")
-	quotaReq.Header.Set("X-Goog-Api-Client", "gl-node/22.17.0")
-	quotaReq.Header.Set("Client-Metadata", "ideType=IDE_UNSPECIFIED,platform=PLATFORM_UNSPECIFIED,pluginType=GEMINI")
-	for _, header := range request.CustomHeader {
-		if header.HeaderKey != "" {
-			quotaReq.Header.Set(header.HeaderKey, header.HeaderValue)
-		}
-	}
-
-	quotaResp, err := client.Do(quotaReq)
-	if err != nil {
-		return nil, err
-	}
-	defer quotaResp.Body.Close()
-
-	var quotaPayload struct {
-		Buckets []struct {
-			ModelID string `json:"modelId"`
-		} `json:"buckets"`
-	}
-	if err := json.NewDecoder(quotaResp.Body).Decode(&quotaPayload); err != nil {
-		return nil, err
-	}
-
-	// Deduplicate model IDs
-	seen := make(map[string]bool)
-	var models []string
-	for _, bucket := range quotaPayload.Buckets {
-		if bucket.ModelID != "" && !seen[bucket.ModelID] {
-			seen[bucket.ModelID] = true
-			models = append(models, bucket.ModelID)
-		}
-	}
-	return models, nil
+func fetchModelsURL(request model.Channel) string {
+	return strings.TrimRight(request.GetBaseUrl(), "/") + "/models"
 }
 
-// fetchCopilotModels retrieves models for GitHub Copilot channel.
-// It first exchanges the GitHub OAuth token for a short-lived Copilot API token,
-// then calls the OpenAI-compatible /models endpoint on api.githubcopilot.com.
-func fetchCopilotModels(client *http.Client, ctx context.Context, request model.Channel) ([]string, error) {
-	githubToken := request.GetChannelKey().ChannelKey
-	copilotToken, err := copilot.ExchangeToken(ctx, githubToken)
-	if err != nil {
-		return nil, err
-	}
-
-	req, _ := http.NewRequestWithContext(
-		ctx,
-		http.MethodGet,
-		request.GetBaseUrl()+"/models",
-		nil,
-	)
-	req.Header.Set("Authorization", "Bearer "+copilotToken)
+func applyFetchModelsCustomHeaders(req *http.Request, request model.Channel) {
 	for _, header := range request.CustomHeader {
 		if header.HeaderKey != "" {
 			req.Header.Set(header.HeaderKey, header.HeaderValue)
 		}
 	}
+}
 
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, err
-	}
+func decodeFetchModelsResponse(resp *http.Response, provider string, dst any) error {
 	defer resp.Body.Close()
 
-	var result model.OpenAIModelList
-
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return nil, err
+	body, err := io.ReadAll(io.LimitReader(resp.Body, fetchModelsMaxResponseBytes+1))
+	if err != nil {
+		return fmt.Errorf("read %s models response: %w", provider, err)
+	}
+	if len(body) > fetchModelsMaxResponseBytes {
+		return fmt.Errorf("%s models response exceeds %d bytes", provider, fetchModelsMaxResponseBytes)
 	}
 
-	models := make([]string, 0, len(result.Data))
-	for _, m := range result.Data {
-		models = append(models, m.ID)
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		return fmt.Errorf("%s models request failed: %s: %s", provider, resp.Status, fetchModelsErrorBody(body))
 	}
-	return models, nil
+
+	if err := json.Unmarshal(body, dst); err != nil {
+		return fmt.Errorf("decode %s models response: %w", provider, err)
+	}
+	return nil
+}
+
+func fetchModelsErrorBody(body []byte) string {
+	text := strings.TrimSpace(string(body))
+	if text == "" {
+		return "<empty body>"
+	}
+	if len(text) > fetchModelsMaxErrorBytes {
+		return text[:fetchModelsMaxErrorBytes] + "...<truncated>"
+	}
+	return text
 }

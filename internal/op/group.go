@@ -30,14 +30,6 @@ func GroupListModel(ctx context.Context) ([]string, error) {
 	return models, nil
 }
 
-func GroupGet(id int, ctx context.Context) (*model.Group, error) {
-	group, ok := groupCache.Get(id)
-	if !ok {
-		return nil, fmt.Errorf("group not found")
-	}
-	return &group, nil
-}
-
 func GroupGetEnabledMap(name string, ctx context.Context) (model.Group, error) {
 	group, ok := groupMap.Get(name)
 	if !ok {
@@ -282,29 +274,6 @@ func GroupItemBatchAdd(groupID int, items []model.GroupIDAndLLMName, ctx context
 	return groupRefreshCacheByID(groupID, ctx)
 }
 
-func GroupItemUpdate(item *model.GroupItem, ctx context.Context) error {
-	if err := db.GetDB().WithContext(ctx).Model(item).
-		Select("ModelName", "Priority", "Weight").
-		Updates(item).Error; err != nil {
-		return err
-	}
-
-	return groupRefreshCacheByID(item.GroupID, ctx)
-}
-
-func GroupItemDel(id int, ctx context.Context) error {
-	var item model.GroupItem
-	if err := db.GetDB().WithContext(ctx).First(&item, id).Error; err != nil {
-		return fmt.Errorf("group item not found")
-	}
-
-	if err := db.GetDB().WithContext(ctx).Delete(&item).Error; err != nil {
-		return err
-	}
-
-	return groupRefreshCacheByID(item.GroupID, ctx)
-}
-
 // GroupItemBatchDelByChannelAndModels 根据渠道ID和模型名称批量删除分组项
 func GroupItemBatchDelByChannelAndModels(keys []model.GroupIDAndLLMName, ctx context.Context) error {
 	if len(keys) == 0 {
@@ -360,6 +329,8 @@ func groupRefreshCache(ctx context.Context) error {
 		Find(&groups).Error; err != nil {
 		return err
 	}
+	groupCache.Clear()
+	groupMap.Clear()
 	for _, group := range groups {
 		groupCache.Set(group.ID, group)
 		groupMap.Set(group.Name, group)

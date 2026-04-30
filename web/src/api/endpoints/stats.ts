@@ -43,7 +43,6 @@ export interface StatsDailyFormatted extends StatsMetricsFormatted {
 export interface StatsTotal extends StatsMetrics {
     id: number;
 }
-export type StatsTotalFormatted = StatsMetricsFormatted;
 
 export interface StatsHourly extends StatsMetrics {
     hour: number;
@@ -73,19 +72,6 @@ export interface StatsGroup extends StatsMetrics {
 
 export interface StatsGroupFormatted extends StatsMetricsFormatted {
     group_name: string;
-}
-/**
- * 获取今日统计数据 Hook
- */
-export function useStatsToday() {
-    return useQuery({
-        queryKey: ['stats', 'today'],
-        queryFn: async () => {
-            return apiClient.get<StatsDaily>('/api/v1/stats/today');
-        },
-        refetchInterval: 30000,
-        refetchOnMount: 'always',
-    });
 }
 
 /**

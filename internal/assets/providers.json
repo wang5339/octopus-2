@@ -55,12 +55,6 @@
     "base_url": "https://open.bigmodel.cn/api/anthropic/v1"
   },
   {
-    "name": "GitHub Copilot",
-    "channel_type": 7,
-    "base_url": "https://api.githubcopilot.com",
-    "auth_type": "oauth_device"
-  },
-  {
     "name": "Vercel AI Gateway",
     "channel_type": 0,
     "base_url": "https://ai.vercel.app/api/v1"
@@ -69,11 +63,5 @@
     "name": "OpenCode Zen",
     "channel_type": 9,
     "base_url": "https://opencode.ai/zen/v1"
-  },
-  {
-    "name": "Antigravity",
-    "channel_type": 8,
-    "base_url": "https://cloudcode-pa.googleapis.com",
-    "auth_type": "oauth_web"
   }
 ]

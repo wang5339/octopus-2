@@ -28,10 +28,6 @@ var statsChannelCache = cache.New[int, model.StatsChannel](16)
 var statsChannelCacheNeedUpdate = make(map[int]struct{})
 var statsChannelCacheNeedUpdateLock sync.Mutex
 
-var statsModelCache = cache.New[int, model.StatsModel](16)
-var statsModelCacheNeedUpdate = make(map[int]struct{})
-var statsModelCacheNeedUpdateLock sync.Mutex
-
 var statsAPIKeyCache = cache.New[int, model.StatsAPIKey](16)
 var statsAPIKeyCacheNeedUpdate = make(map[int]struct{})
 var statsAPIKeyCacheNeedUpdateLock sync.Mutex
@@ -78,14 +74,6 @@ func StatsSaveDB(ctx context.Context) error {
 	statsChannelCacheNeedUpdate = make(map[int]struct{})
 	statsChannelCacheNeedUpdateLock.Unlock()
 
-	statsModelCacheNeedUpdateLock.Lock()
-	modelIDs := make([]int, 0, len(statsModelCacheNeedUpdate))
-	for id := range statsModelCacheNeedUpdate {
-		modelIDs = append(modelIDs, id)
-	}
-	statsModelCacheNeedUpdate = make(map[int]struct{})
-	statsModelCacheNeedUpdateLock.Unlock()
-
 	statsAPIKeyCacheNeedUpdateLock.Lock()
 	apiKeyIDs := make([]int, 0, len(statsAPIKeyCacheNeedUpdate))
 	for id := range statsAPIKeyCacheNeedUpdate {
@@ -102,7 +90,7 @@ func StatsSaveDB(ctx context.Context) error {
 	statsGroupCacheNeedUpdate = make(map[string]struct{})
 	statsGroupCacheNeedUpdateLock.Unlock()
 
-	return persistStatsSnapshots(ctx, totalSnap, dailySnap, hourlyAll, channelIDs, modelIDs, apiKeyIDs, groupNames)
+	return persistStatsSnapshots(ctx, totalSnap, dailySnap, hourlyAll, channelIDs, apiKeyIDs, groupNames)
 }
 
 func persistStatsSnapshots(
@@ -111,7 +99,6 @@ func persistStatsSnapshots(
 	dailySnap model.StatsDaily,
 	hourlyAll [24]model.StatsHourly,
 	channelIDs []int,
-	modelIDs []int,
 	apiKeyIDs []int,
 	groupNames []string,
 ) error {
@@ -146,16 +133,6 @@ func persistStatsSnapshots(
 			continue
 		}
 		if result := dbConn.Save(&ch); result.Error != nil {
-			return result.Error
-		}
-	}
-
-	for _, id := range modelIDs {
-		m, ok := statsModelCache.Get(id)
-		if !ok {
-			continue
-		}
-		if result := dbConn.Save(&m); result.Error != nil {
 			return result.Error
 		}
 	}
@@ -203,14 +180,6 @@ func statsSaveDBWithDailyOverride(ctx context.Context, dailyOverride model.Stats
 	statsChannelCacheNeedUpdate = make(map[int]struct{})
 	statsChannelCacheNeedUpdateLock.Unlock()
 
-	statsModelCacheNeedUpdateLock.Lock()
-	modelIDs := make([]int, 0, len(statsModelCacheNeedUpdate))
-	for id := range statsModelCacheNeedUpdate {
-		modelIDs = append(modelIDs, id)
-	}
-	statsModelCacheNeedUpdate = make(map[int]struct{})
-	statsModelCacheNeedUpdateLock.Unlock()
-
 	statsAPIKeyCacheNeedUpdateLock.Lock()
 	apiKeyIDs := make([]int, 0, len(statsAPIKeyCacheNeedUpdate))
 	for id := range statsAPIKeyCacheNeedUpdate {
@@ -227,7 +196,7 @@ func statsSaveDBWithDailyOverride(ctx context.Context, dailyOverride model.Stats
 	statsGroupCacheNeedUpdate = make(map[string]struct{})
 	statsGroupCacheNeedUpdateLock.Unlock()
 
-	return persistStatsSnapshots(ctx, totalSnap, dailyOverride, hourlyAll, channelIDs, modelIDs, apiKeyIDs, groupNames)
+	return persistStatsSnapshots(ctx, totalSnap, dailyOverride, hourlyAll, channelIDs, apiKeyIDs, groupNames)
 }
 
 func StatsDailyUpdate(ctx context.Context, metrics model.StatsMetrics) error {
@@ -292,23 +261,6 @@ func StatsHourlyUpdate(metrics model.StatsMetrics) error {
 	return nil
 }
 
-func StatsModelUpdate(stats model.StatsModel) error {
-	modelCache, ok := statsModelCache.Get(stats.ID)
-	if !ok {
-		modelCache = model.StatsModel{
-			ID:        stats.ID,
-			Name:      stats.Name,
-			ChannelID: stats.ChannelID,
-		}
-	}
-	modelCache.StatsMetrics.Add(stats.StatsMetrics)
-	statsModelCache.Set(stats.ID, modelCache)
-	statsModelCacheNeedUpdateLock.Lock()
-	statsModelCacheNeedUpdate[stats.ID] = struct{}{}
-	statsModelCacheNeedUpdateLock.Unlock()
-	return nil
-}
-
 func StatsAPIKeyUpdate(apiKeyID int, metrics model.StatsMetrics) error {
 	apiKeyCache, ok := statsAPIKeyCache.Get(apiKeyID)
 	if !ok {
@@ -350,12 +302,6 @@ func StatsTotalGet() model.StatsTotal {
 	statsTotalCacheLock.RLock()
 	defer statsTotalCacheLock.RUnlock()
 	return statsTotalCache
-}
-
-func StatsTodayGet() model.StatsDaily {
-	statsDailyCacheLock.RLock()
-	defer statsDailyCacheLock.RUnlock()
-	return statsDailyCache
 }
 
 func StatsChannelGet(id int) model.StatsChannel {
@@ -516,20 +462,6 @@ func statsRefreshCache(ctx context.Context) error {
 	statsAPIKeyCacheNeedUpdateLock.Unlock()
 	for _, v := range loadedAPIKeys {
 		statsAPIKeyCache.Set(v.APIKeyID, v)
-	}
-
-	var loadedModels []model.StatsModel
-	result = dbConn.Find(&loadedModels)
-	if result.Error != nil {
-		return fmt.Errorf("failed to get model stats: %v", result.Error)
-	}
-
-	statsModelCache.Clear()
-	statsModelCacheNeedUpdateLock.Lock()
-	statsModelCacheNeedUpdate = make(map[int]struct{})
-	statsModelCacheNeedUpdateLock.Unlock()
-	for _, v := range loadedModels {
-		statsModelCache.Set(v.ID, v)
 	}
 
 	var loadedGroups []model.StatsGroup

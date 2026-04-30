@@ -203,6 +203,7 @@
                 "button": "匯入 JSON",
                 "importing": "匯入中...",
                 "noFile": "請先選擇 JSON 檔案",
+                "confirm": "匯入備份會向當前資料庫增量寫入資料，可能改變現有配置。確認匯入 {filename} 嗎？",
                 "success": "匯入成功",
                 "failed": "匯入失敗",
                 "result": "匯入結果"
@@ -246,6 +247,11 @@
                 "updateError": "API 金鑰更新失敗",
                 "deleteSuccess": "API 金鑰刪除成功",
                 "deleteError": "API 金鑰刪除失敗"
+            },
+            "created": {
+                "onceTitle": "API 金鑰已建立，請立即複製。",
+                "onceDesc": "基於安全考量，完整金鑰只顯示這一次，之後列表中只會顯示脫敏金鑰。",
+                "dismiss": "關閉"
             }
         },
         "llmPrice": {
@@ -278,6 +284,8 @@
             "lastSync": "上次同步",
             "neverSynced": "從未同步",
             "syncSuccess": "供應源同步成功",
+            "syncStarted": "供應源同步已開始",
+            "syncAlreadyRunning": "供應源同步正在執行，請稍後查看結果",
             "syncFailed": "供應源同步失敗"
         },
         "account": {
@@ -308,20 +316,14 @@
         "info": {
             "title": "版本資訊",
             "currentVersion": "當前版本",
-            "latestVersion": "最新版本",
-            "buildTime": "建構時間",
-            "publishedAt": "發布時間",
+            "deploymentMethod": "部署方式",
+            "dockerCompose": "Docker Compose",
+            "dockerComposeHint": "本項目當前只保留 Docker Compose 部署口徑；應用內自更新已禁用。升級時請重新構建鏡像，並執行 docker compose up -d --force-recreate 重建容器。",
             "github": "GitHub 倉庫",
             "unknown": "未知",
             "versionMismatch": "版本不匹配",
             "versionMismatchHint": "前端版本 ({frontend}) 與後端版本 ({backend}) 不一致，可能是瀏覽器快取問題，請強制重新整理頁面。",
-            "forceRefresh": "強制重新整理",
-            "newVersionAvailable": "發現新版本可用",
-            "newVersionAvailableHint": "請先備份數據，然後更新系統",
-            "updateNow": "立即更新",
-            "updating": "更新中...",
-            "updateSuccess": "更新成功，服務即將重啟",
-            "updateFailed": "更新失敗"
+            "forceRefresh": "強制重新整理"
         },
         "log": {
             "title": "日誌設定",
@@ -338,7 +340,8 @@
             "clear": {
                 "label": "清空歷史日誌",
                 "button": "清空",
-                "clearing": "清空中..."
+                "clearing": "清空中...",
+                "confirm": "清空歷史日誌會刪除當前快取和資料庫中的日誌記錄，此操作不可撤銷。確認繼續嗎？"
             },
             "clearSuccess": "日誌已清空",
             "clearFailed": "清空失敗"
@@ -553,13 +556,7 @@
             "typeGemini": "Gemini",
             "typeVolcengine": "火山引擎",
             "typeOpenAIImageGeneration": "OpenAI 圖片生成",
-            "typeGithubCopilot": "GitHub Copilot",
-            "typeAntigravity": "Antigravity",
             "typeZen": "OpenCode Zen",
-            "githubCopilotHint": "GitHub Copilot 需要透過 OAuth 裝置授權碼方式認證",
-            "githubCopilotHintDesc": "請先在 GitHub 完成裝置授權流程取得存取令牌，再將令牌填入下方 API Key 欄位。目前不支援自動授權流程。",
-            "antigravityHint": "Antigravity 需要透過 OAuth 網頁授權方式認證",
-            "antigravityHintDesc": "請先在 Antigravity 官網完成授權，取得 API Token 後填入下方 API Key 欄位。",
             "autoSync": "自動同步",
             "autoGroup": "自動分組",
             "autoGroupNone": "不自動分組",
@@ -582,31 +579,14 @@
             "testNeedBaseUrlAndKey": "請先填寫 Base URL 和 API Key",
             "testResultTitle": "測試結果",
             "testResultSummary": "共 {total} 個模型，通過 {passed} 個",
-            "copilotDeviceFlow": "GitHub Device Flow 授權",
-            "copilotStartAuth": "開始 GitHub 授權",
-            "copilotUserCodeHint": "請在瀏覽器中開啟授權頁面，輸入以下驗證碼以完成授權：",
-            "copilotOpenGitHub": "開啟 GitHub 授權頁面",
-            "copilotWaiting": "等待授權中，請在 GitHub 頁面完成操作...",
-            "copilotCodeCopied": "驗證碼已複製",
-            "copilotSuccess": "授權成功，API Token 已自動填入",
-            "copilotExpired": "授權碼已過期，請重新發起授權",
-            "copilotDenied": "授權被拒絕",
-            "copilotRetry": "重新授權",
-            "copilotError": "授權失敗，請重試",
             "fetchedModelList": "請求到的模型",
             "modelSelectAllFetched": "全選請求結果",
             "modelClearFetched": "清空請求結果",
-            "antigravityOAuthTitle": "Antigravity 網頁授權",
-            "antigravityConfigHint": "使用內建預設 OAuth 應用（Gemini CLI），也可透過 OCTOPUS_ANTIGRAVITY_CLIENT_ID / CLIENT_SECRET 環境變數自訂",
-            "antigravityStartAuth": "開始 Antigravity 授權",
-            "antigravityWaiting": "等待網頁授權完成，請在新視窗操作...",
-            "antigravityOpenAgain": "重新開啟授權頁面",
-            "antigravitySuccess": "授權成功，Token 已自動填入",
-            "antigravityRetry": "重新授權",
-            "antigravityAuthFailed": "Antigravity 授權失敗",
             "upstreamIgnoredModels": "上游模型忽略列表",
             "upstreamIgnoredModelsPlaceholder": "例如：gpt-4.1-nano,regex:^sora-.*$，用英文逗號分隔",
-            "upstreamIgnoredModelsHelp": "自動同步和手動檢測會跳過這些新增模型；支援精確匹配和 regex: 正則。"
+            "upstreamIgnoredModelsHelp": "自動同步和手動檢測會跳過這些新增模型；支援精確匹配和 regex: 正則。",
+            "dryRun": "僅轉換請求（不調用上游）",
+            "realRequestConfirm": "此操作會向上游發送 {count} 次真實請求，可能產生費用或觸發限流。確認繼續？"
         },
         "models": {
             "selectAll": "全選",
@@ -639,11 +619,14 @@
             "modelProtocolDetect": "檢測協議",
             "modelProtocolDetecting": "檢測中",
             "modelProtocolDetectDone": "已檢測 {count} 個模型的協議",
+            "modelProtocolDetectFailed": "協議檢測失敗",
             "modelProtocolApplyRecommended": "套用推薦協議",
             "modelProtocolApplyDone": "已套用 {count} 個推薦協議",
             "modelProtocolRecommended": "推薦",
             "modelProtocolProbeSummary": "協議 {passed}/{total}",
-            "modelProtocolNoRecommendation": "無推薦"
+            "modelProtocolNoRecommendation": "無推薦",
+            "dryRun": "僅轉換請求（不調用上游）",
+            "realRequestConfirm": "此操作會向上游發送 {count} 次真實請求，可能產生費用或觸發限流。確認繼續？"
         }
     },
     "doc": {

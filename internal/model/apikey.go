@@ -4,6 +4,7 @@ type APIKey struct {
 	ID              int     `json:"id" gorm:"primaryKey"`
 	Name            string  `json:"name" gorm:"not null"`
 	APIKey          string  `json:"api_key" gorm:"not null"`
+	APIKeyHash      string  `json:"api_key_hash,omitempty" gorm:"index"`
 	Enabled         bool    `json:"enabled" gorm:"default:true"`
 	ExpireAt        int64   `json:"expire_at,omitempty"`
 	MaxCost         float64 `json:"max_cost,omitempty"`

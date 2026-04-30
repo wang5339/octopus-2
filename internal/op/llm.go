@@ -12,6 +12,10 @@ import (
 
 var llmModelCache = cache.New[string, model.LLMPrice](16)
 
+func normalizeLLMName(name string) string {
+	return strings.ToLower(strings.TrimSpace(name))
+}
+
 func LLMList(ctx context.Context) ([]model.LLMInfo, error) {
 	models := make([]model.LLMInfo, 0, llmModelCache.Len())
 	for m, cost := range llmModelCache.GetAll() {
@@ -24,6 +28,10 @@ func LLMList(ctx context.Context) ([]model.LLMInfo, error) {
 }
 
 func LLMUpdate(model model.LLMInfo, ctx context.Context) error {
+	model.Name = normalizeLLMName(model.Name)
+	if model.Name == "" {
+		return fmt.Errorf("model name is empty")
+	}
 	_, ok := llmModelCache.Get(model.Name)
 	if !ok {
 		return fmt.Errorf("model not found")
@@ -36,6 +44,10 @@ func LLMUpdate(model model.LLMInfo, ctx context.Context) error {
 }
 
 func LLMDelete(modelName string, ctx context.Context) error {
+	modelName = normalizeLLMName(modelName)
+	if modelName == "" {
+		return fmt.Errorf("model name is empty")
+	}
 	_, ok := llmModelCache.Get(modelName)
 	if !ok {
 		return fmt.Errorf("model not found")
@@ -50,6 +62,10 @@ func LLMBatchDelete(modelNames []string, ctx context.Context) error {
 	if len(modelNames) == 0 {
 		return nil
 	}
+	modelNames = normalizeLLMNames(modelNames)
+	if len(modelNames) == 0 {
+		return nil
+	}
 	if err := db.GetDB().WithContext(ctx).Where("name IN ?", modelNames).Delete(&model.LLMInfo{}).Error; err != nil {
 		return err
 	}
@@ -57,7 +73,10 @@ func LLMBatchDelete(modelNames []string, ctx context.Context) error {
 	return nil
 }
 func LLMCreate(model model.LLMInfo, ctx context.Context) error {
-	model.Name = strings.ToLower(model.Name)
+	model.Name = normalizeLLMName(model.Name)
+	if model.Name == "" {
+		return fmt.Errorf("model name is empty")
+	}
 	_, ok := llmModelCache.Get(model.Name)
 	if ok {
 		return fmt.Errorf("model already exists")
@@ -75,7 +94,10 @@ func LLMBatchCreate(llmInfos []model.LLMInfo, ctx context.Context) error {
 	seen := make(map[string]struct{}, len(llmInfos))
 	newLLMInfos := make([]model.LLMInfo, 0, len(llmInfos))
 	for _, llmInfo := range llmInfos {
-		llmInfo.Name = strings.ToLower(llmInfo.Name)
+		llmInfo.Name = normalizeLLMName(llmInfo.Name)
+		if llmInfo.Name == "" {
+			continue
+		}
 		if _, ok := seen[llmInfo.Name]; ok {
 			continue
 		}
@@ -97,6 +119,10 @@ func LLMBatchCreate(llmInfos []model.LLMInfo, ctx context.Context) error {
 	return nil
 }
 func LLMGet(name string) (model.LLMPrice, error) {
+	name = normalizeLLMName(name)
+	if name == "" {
+		return model.LLMPrice{}, fmt.Errorf("model name is empty")
+	}
 	price, ok := llmModelCache.Get(name)
 	if !ok {
 		return model.LLMPrice{}, fmt.Errorf("model not found")
@@ -109,8 +135,30 @@ func llmRefreshCache(ctx context.Context) error {
 	if err := db.GetDB().WithContext(ctx).Find(&models).Error; err != nil {
 		return err
 	}
+	llmModelCache.Clear()
 	for _, model := range models {
+		model.Name = normalizeLLMName(model.Name)
+		if model.Name == "" {
+			continue
+		}
 		llmModelCache.Set(model.Name, model.LLMPrice)
 	}
 	return nil
+}
+
+func normalizeLLMNames(names []string) []string {
+	seen := make(map[string]struct{}, len(names))
+	normalized := make([]string, 0, len(names))
+	for _, name := range names {
+		name = normalizeLLMName(name)
+		if name == "" {
+			continue
+		}
+		if _, ok := seen[name]; ok {
+			continue
+		}
+		seen[name] = struct{}{}
+		normalized = append(normalized, name)
+	}
+	return normalized
 }

@@ -144,7 +144,12 @@ type InternalLLMRequest struct {
 	// Used by OpenAI to cache responses for similar requests to optimize your cache
 	// hit rates. Replaces the `user` field.
 	// [Learn more](https://platform.openai.com/docs/guides/prompt-caching).
-	PromptCacheKey *bool `json:"prompt_cache_key,omitzero"`
+	PromptCacheKey *string `json:"prompt_cache_key,omitzero"`
+
+	// PromptCacheRetention requests longer prompt cache retention for OpenAI
+	// Responses. It is Responses-only and must be stripped by providers that do
+	// not support the OpenAI Responses cache-retention contract.
+	PromptCacheRetention *string `json:"prompt_cache_retention,omitzero"`
 
 	// A stable identifier used to help detect users of your application that may be
 	// violating OpenAI's usage policies. The IDs should be a string that uniquely
@@ -267,6 +272,14 @@ type InternalLLMRequest struct {
 	// e.g., "file_search_call.results", "message.input_image.image_url", "reasoning.encrypted_content"
 	Include []string `json:"-"`
 
+	// PreviousResponseID links an OpenAI Responses request to a previous response.
+	// This is a Responses-only help field; non-Responses outbound adapters must not send it.
+	PreviousResponseID *string `json:"-"`
+
+	// Truncation controls context-window truncation for OpenAI Responses requests.
+	// This is a Responses-only help field; non-Responses outbound adapters must not send it.
+	Truncation *string `json:"-"`
+
 	// Query stores the original query parameters from the inbound request.
 	// This is a help field and will not be sent to the llm service.
 	Query url.Values `json:"-"`
@@ -356,7 +369,6 @@ func (r *InternalLLMRequest) fillMissingToolCallIDs() {
 	}
 }
 
-
 func (r *InternalLLMRequest) fillMissingToolCallIDsFromToolMessages() {
 	for msgIndex := 0; msgIndex < len(r.Messages); msgIndex++ {
 		msg := &r.Messages[msgIndex]
@@ -425,7 +437,10 @@ func (r *InternalLLMRequest) ClearHelpFields() {
 	}
 
 	r.ExtraBody = nil
+	r.PromptCacheRetention = nil
 	r.Include = nil
+	r.PreviousResponseID = nil
+	r.Truncation = nil
 }
 
 func (r *InternalLLMRequest) IsImageGenerationRequest() bool {

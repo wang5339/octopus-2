@@ -1,6 +1,10 @@
 FROM node:20-alpine AS frontend
 
 WORKDIR /app/web
+ARG NEXT_PUBLIC_APP_VERSION=dev
+ARG NEXT_PUBLIC_GITHUB_REPO=https://github.com/wang5339/octopus-2
+ENV NEXT_PUBLIC_APP_VERSION=${NEXT_PUBLIC_APP_VERSION}
+ENV NEXT_PUBLIC_GITHUB_REPO=${NEXT_PUBLIC_GITHUB_REPO}
 COPY web/package.json web/pnpm-lock.yaml ./
 RUN corepack enable && pnpm install --frozen-lockfile
 COPY web/ ./
@@ -8,7 +12,7 @@ RUN pnpm run build
 
 FROM golang:1.24-alpine AS backend
 
-RUN apk add --no-cache git python3
+RUN apk add --no-cache git
 
 WORKDIR /app
 COPY go.mod go.sum ./
@@ -16,9 +20,6 @@ RUN go mod download
 
 COPY . .
 COPY --from=frontend /app/web/out ./static/out
-
-# 更新价格数据
-RUN python3 scripts/updatePrice.py || true
 
 # 构建二进制
 ARG VERSION=dev

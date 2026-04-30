@@ -147,7 +147,9 @@ export function useDeleteModel() {
 
     return useMutation({
         mutationFn: async (name: string) => {
-            return apiClient.post<null>('/api/v1/model/delete', { name });
+            return apiClient.post<null>('/api/v1/model/delete', { name }, {
+                headers: { 'X-Octopus-Confirm': 'delete-model' },
+            });
         },
         onSuccess: () => {
             logger.log('模型删除成功');

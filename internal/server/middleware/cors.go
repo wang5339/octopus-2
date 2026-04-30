@@ -69,6 +69,7 @@ func Cors() gin.HandlerFunc {
 		"Accept-Encoding",
 		"Authorization",
 		"X-Api-Key",
+		"X-Octopus-Confirm",
 		"X-Requested-With",
 		"X-CSRF-Token",
 	}

@@ -38,6 +38,7 @@ export function SettingBackup() {
             toast.error(t('backup.import.noFile'));
             return;
         }
+        if (!window.confirm(t('backup.import.confirm', { filename: file.name }))) return;
         try {
             await importDB.mutateAsync(file);
             toast.success(t('backup.import.success'));
@@ -132,5 +133,4 @@ export function SettingBackup() {
         </div>
     );
 }
-
 

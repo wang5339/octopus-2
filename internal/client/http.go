@@ -1,13 +1,12 @@
 package client
 
 import (
-	"context"
 	"fmt"
-	"net"
 	"net/http"
 	"net/url"
 	"sync"
 
+	"github.com/bestruirui/octopus/internal/httpclient"
 	"github.com/bestruirui/octopus/internal/model"
 	"github.com/bestruirui/octopus/internal/op"
 	"golang.org/x/net/proxy"
@@ -88,11 +87,7 @@ func GetHTTPClientCustomProxy(proxyURL string) (*http.Client, error) {
 }
 
 func clonedDefaultTransport() (*http.Transport, error) {
-	transport, ok := http.DefaultTransport.(*http.Transport)
-	if !ok {
-		return nil, fmt.Errorf("default transport is not *http.Transport")
-	}
-	return transport.Clone(), nil
+	return httpclient.CloneDefaultTransport()
 }
 
 func newHTTPClientNoProxy() (*http.Client, error) {
@@ -123,10 +118,12 @@ func newHTTPClientCustomProxy(proxyURLStr string) (*http.Client, error) {
 		if err != nil {
 			return nil, fmt.Errorf("invalid socks proxy: %w", err)
 		}
-		cloned.Proxy = nil
-		cloned.DialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
-			return socksDialer.Dial(network, addr)
+		contextDialer, ok := socksDialer.(proxy.ContextDialer)
+		if !ok {
+			return nil, fmt.Errorf("socks proxy dialer does not support context")
 		}
+		cloned.Proxy = nil
+		cloned.DialContext = contextDialer.DialContext
 	default:
 		return nil, fmt.Errorf("unsupported proxy scheme: %s", proxyURL.Scheme)
 	}

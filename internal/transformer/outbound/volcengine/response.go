@@ -19,6 +19,13 @@ var supportedReasoningEffortModel = map[string]bool{
 	"doubao-seed-1-6-251015":      true,
 }
 
+var allowedExtraBodyKeys = map[string]struct{}{
+	"caching":            {},
+	"context_management": {},
+	"expire_at":          {},
+	"max_tool_calls":     {},
+}
+
 type ResponseOutbound struct {
 	inner openai.ResponseOutbound
 }
@@ -30,7 +37,7 @@ func (o *ResponseOutbound) TransformRequest(ctx context.Context, request *model.
 
 	// Convert to Responses API request format
 	openaiReq := openai.ConvertToResponsesRequest(request)
-	openaiReq.Metadata = nil // volcengine not supported
+	sanitizeOpenAIOnlyFields(openaiReq)
 	if _, ok := supportedReasoningEffortModel[request.Model]; !ok {
 		openaiReq.Reasoning = nil
 	}
@@ -46,7 +53,7 @@ func (o *ResponseOutbound) TransformRequest(ctx context.Context, request *model.
 	default:
 	}
 
-	body, err := json.Marshal(responsesReq)
+	body, err := marshalResponsesRequest(responsesReq, request.ExtraBody)
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal responses api request: %w", err)
 	}
@@ -73,6 +80,64 @@ func (o *ResponseOutbound) TransformRequest(ctx context.Context, request *model.
 	return req, nil
 
 }
+
+func sanitizeOpenAIOnlyFields(req *openai.ResponsesRequest) {
+	if req == nil {
+		return
+	}
+
+	// 火山方舟 Responses 创建接口不支持这些 OpenAI-only 请求字段；
+	// 透传会增加上游 400 风险，所以在 Volcengine 适配器边界集中剥离。
+	req.ParallelToolCalls = nil
+	req.ServiceTier = nil
+	req.User = nil
+	req.SafetyIdentifier = nil
+	req.PromptCacheKey = nil
+	req.PromptCacheRetention = nil
+	req.Truncation = nil
+	req.Metadata = nil
+	req.TopLogprobs = nil
+	req.Include = nil
+
+	if req.Reasoning != nil {
+		req.Reasoning.MaxTokens = nil
+	}
+}
+
+func marshalResponsesRequest(req ResponsesRequest, extraBody json.RawMessage) ([]byte, error) {
+	body, err := json.Marshal(req)
+	if err != nil {
+		return nil, err
+	}
+
+	extraBody = bytes.TrimSpace(extraBody)
+	if len(extraBody) == 0 || bytes.Equal(extraBody, []byte("null")) {
+		return body, nil
+	}
+
+	var payload map[string]json.RawMessage
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return nil, err
+	}
+
+	var extra map[string]json.RawMessage
+	if err := json.Unmarshal(extraBody, &extra); err != nil {
+		return nil, fmt.Errorf("invalid extra_body: must be a JSON object: %w", err)
+	}
+	if extra == nil {
+		return body, nil
+	}
+
+	for key, value := range extra {
+		if _, ok := allowedExtraBodyKeys[key]; !ok {
+			return nil, fmt.Errorf("extra_body field %q is not allowed for volcengine responses", key)
+		}
+		payload[key] = value
+	}
+
+	return json.Marshal(payload)
+}
+
 func (o *ResponseOutbound) TransformResponse(ctx context.Context, response *http.Response) (*model.InternalLLMResponse, error) {
 	return o.inner.TransformResponse(ctx, response)
 }
@@ -131,17 +196,20 @@ type ResponsesItem struct {
 }
 
 func convertToResponsesInput(input openai.ResponsesInput) ResponsesInput {
-	result := ResponsesInput{}
 	if input.Text != nil {
-		result.Text = input.Text
-		return result
+		return ResponsesInput{Text: input.Text}
 	}
 
+	result := ResponsesInput{Items: make([]ResponsesItem, 0, len(input.Items))}
 	for _, item := range input.Items {
 		result.Items = append(result.Items, ResponsesItem{ResponsesItem: item})
 	}
+	if len(result.Items) == 0 {
+		return result
+	}
+
 	// If the role of the last message is the assistant, needs set partial.
-	idx := len(input.Items) - 1
+	idx := len(result.Items) - 1
 	if result.Items[idx].Role == "assistant" {
 		result.Items[idx].Partial = true
 	}

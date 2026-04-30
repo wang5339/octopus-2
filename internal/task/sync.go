@@ -3,6 +3,8 @@ package task
 import (
 	"context"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/bestruirui/octopus/internal/helper"
@@ -11,10 +13,45 @@ import (
 	"github.com/bestruirui/octopus/internal/utils/log"
 )
 
-var lastSyncModelsTime = time.Now()
+var (
+	lastSyncModelsTimeMu sync.RWMutex
+	lastSyncModelsTime   time.Time
+	syncModelsRunning    atomic.Bool
+	syncModelsTaskRunner = runSyncModelsTask
+)
 
 // SyncModelsTask 同步模型任务
 func SyncModelsTask() {
+	_ = startSyncModelsTask(false)
+}
+
+func StartSyncModelsTaskAsync() bool {
+	return startSyncModelsTask(true)
+}
+
+func IsSyncModelsTaskRunning() bool {
+	return syncModelsRunning.Load()
+}
+
+func startSyncModelsTask(async bool) bool {
+	if !syncModelsRunning.CompareAndSwap(false, true) {
+		log.Warnf("sync models task skipped: another sync is already running")
+		return false
+	}
+
+	run := func() {
+		defer syncModelsRunning.Store(false)
+		syncModelsTaskRunner()
+	}
+	if async {
+		go run()
+		return true
+	}
+	run()
+	return true
+}
+
+func runSyncModelsTask() {
 	log.Debugf("sync models task started")
 	startTime := time.Now()
 	defer func() {
@@ -27,8 +64,7 @@ func SyncModelsTask() {
 		log.Errorf("failed to list channels: %v", err)
 		return
 	}
-	totalNewModels := make([]string, 0, 128)
-	seenTotalNewModels := make(map[string]struct{}, 128)
+	knownModelNames, seenKnownModelNames := collectConfiguredModelNames(channels)
 	for _, channel := range channels {
 		if !channel.AutoSync {
 			continue
@@ -40,18 +76,7 @@ func SyncModelsTask() {
 		}
 		oldModels := helper.ChannelModelNames(channel)
 		newModels := helper.NormalizeModelNames(fetchModels)
-		for _, m := range newModels {
-			m = strings.TrimSpace(m)
-			if m == "" {
-				continue
-			}
-			m = strings.ToLower(m)
-			if _, ok := seenTotalNewModels[m]; ok {
-				continue
-			}
-			seenTotalNewModels[m] = struct{}{}
-			totalNewModels = append(totalNewModels, m)
-		}
+		appendNormalizedLowerModelNames(&knownModelNames, seenKnownModelNames, newModels)
 		addedModels, removedModels := helper.CollectPendingUpstreamModelChanges(channel, newModels)
 		now := time.Now().Unix()
 		nextDetected := addedModels
@@ -100,7 +125,7 @@ func SyncModelsTask() {
 		llmPriceNames = append(llmPriceNames, price.Name)
 	}
 
-	deletedNorm, addedNorm := helper.SubtractModelNames(llmPriceNames, totalNewModels), helper.SubtractModelNames(totalNewModels, llmPriceNames)
+	deletedNorm, addedNorm := helper.SubtractModelNames(llmPriceNames, knownModelNames), helper.SubtractModelNames(knownModelNames, llmPriceNames)
 	if len(deletedNorm) > 0 {
 		if err := helper.LLMPriceDeleteFromDBWithNoPrice(deletedNorm, ctx); err != nil {
 			log.Errorf("failed to batch delete models price: %v", err)
@@ -111,9 +136,40 @@ func SyncModelsTask() {
 			log.Errorf("failed to add models price: %v", err)
 		}
 	}
+	lastSyncModelsTimeMu.Lock()
 	lastSyncModelsTime = time.Now()
+	lastSyncModelsTimeMu.Unlock()
 }
 
 func GetLastSyncModelsTime() time.Time {
+	lastSyncModelsTimeMu.RLock()
+	defer lastSyncModelsTimeMu.RUnlock()
 	return lastSyncModelsTime
+}
+
+func collectConfiguredModelNames(channels []model.Channel) ([]string, map[string]struct{}) {
+	modelNames := make([]string, 0, len(channels)*2)
+	seen := make(map[string]struct{}, len(channels)*2)
+	for _, channel := range channels {
+		appendNormalizedLowerModelNames(
+			&modelNames,
+			seen,
+			strings.Split(channel.Model+","+channel.CustomModel, ","),
+		)
+	}
+	return modelNames, seen
+}
+
+func appendNormalizedLowerModelNames(dst *[]string, seen map[string]struct{}, modelNames []string) {
+	for _, modelName := range modelNames {
+		normalized := strings.ToLower(strings.TrimSpace(modelName))
+		if normalized == "" {
+			continue
+		}
+		if _, ok := seen[normalized]; ok {
+			continue
+		}
+		seen[normalized] = struct{}{}
+		*dst = append(*dst, normalized)
+	}
 }

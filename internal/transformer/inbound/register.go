@@ -12,7 +12,6 @@ const (
 	InboundTypeOpenAIChat InboundType = iota
 	InboundTypeOpenAIResponse
 	InboundTypeAnthropic
-	InboundTypeGemini
 	InboundTypeOpenAIEmbedding
 	InboundTypeOpenAIImageGeneration
 

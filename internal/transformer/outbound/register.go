@@ -4,9 +4,7 @@ import (
 	"strings"
 
 	"github.com/bestruirui/octopus/internal/transformer/model"
-	"github.com/bestruirui/octopus/internal/transformer/outbound/antigravity"
 	"github.com/bestruirui/octopus/internal/transformer/outbound/authropic"
-	"github.com/bestruirui/octopus/internal/transformer/outbound/copilot"
 	"github.com/bestruirui/octopus/internal/transformer/outbound/gemini"
 	"github.com/bestruirui/octopus/internal/transformer/outbound/openai"
 	"github.com/bestruirui/octopus/internal/transformer/outbound/volcengine"
@@ -15,16 +13,16 @@ import (
 type OutboundType int
 
 const (
-	OutboundTypeOpenAIChat OutboundType = iota
-	OutboundTypeOpenAIResponse
-	OutboundTypeAnthropic
-	OutboundTypeGemini
-	OutboundTypeVolcengine
-	OutboundTypeOpenAIEmbedding
-	OutboundTypeOpenAIImageGeneration
-	OutboundTypeGithubCopilot // 7: GitHub Copilot (OAuth Device Flow, uses OpenAI Chat format)
-	OutboundTypeAntigravity   // 8: Antigravity (OAuth Web Flow reverse proxy)
-	OutboundTypeZen           // 9: OpenCode Zen (model-aware protocol routing: Claude→Anthropic, GPT→Responses, Gemini→Gemini, others→Chat)
+	OutboundTypeOpenAIChat            OutboundType = 0
+	OutboundTypeOpenAIResponse        OutboundType = 1
+	OutboundTypeAnthropic             OutboundType = 2
+	OutboundTypeGemini                OutboundType = 3
+	OutboundTypeVolcengine            OutboundType = 4
+	OutboundTypeOpenAIEmbedding       OutboundType = 5
+	OutboundTypeOpenAIImageGeneration OutboundType = 6
+	// 7/8 是已移除渠道的历史编号。保留 Zen=9 的显式编号，
+	// 避免历史数据库里的 Zen 渠道被错位解析。
+	OutboundTypeZen OutboundType = 9
 )
 
 // EmbeddingChannelTypes 定义支持 embedding 请求的 channel 类型集合
@@ -44,8 +42,6 @@ var ChatChannelTypes = map[OutboundType]bool{
 	OutboundTypeAnthropic:      true,
 	OutboundTypeGemini:         true,
 	OutboundTypeVolcengine:     true,
-	OutboundTypeGithubCopilot:  true,
-	OutboundTypeAntigravity:    true,
 	OutboundTypeZen:            true,
 }
 
@@ -72,10 +68,6 @@ var outboundFactories = map[OutboundType]func() model.Outbound{
 	OutboundTypeAnthropic:             func() model.Outbound { return &authropic.MessageOutbound{} },
 	OutboundTypeGemini:                func() model.Outbound { return &gemini.MessagesOutbound{} },
 	OutboundTypeVolcengine:            func() model.Outbound { return &volcengine.ResponseOutbound{} },
-	// GitHub Copilot exchanges OAuth token for short-lived Copilot API token, then uses OpenAI Chat format
-	OutboundTypeGithubCopilot: func() model.Outbound { return &copilot.ChatOutbound{} },
-	// Antigravity uses Google Gemini Code Assist API via OAuth Bearer token
-	OutboundTypeAntigravity: func() model.Outbound { return &antigravity.MessagesOutbound{} },
 }
 
 func Get(outboundType OutboundType) model.Outbound {

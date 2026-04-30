@@ -203,6 +203,7 @@
                 "button": "导入 JSON",
                 "importing": "导入中...",
                 "noFile": "请先选择 JSON 文件",
+                "confirm": "导入备份会向当前数据库增量写入数据，可能改变现有配置。确认导入 {filename} 吗？",
                 "success": "导入成功",
                 "failed": "导入失败",
                 "result": "导入结果"
@@ -246,6 +247,11 @@
                 "updateError": "API 密钥更新失败",
                 "deleteSuccess": "API 密钥删除成功",
                 "deleteError": "API 密钥删除失败"
+            },
+            "created": {
+                "onceTitle": "API 密钥已创建，请立即复制。",
+                "onceDesc": "出于安全考虑，完整密钥只显示这一次，之后列表中只会显示脱敏密钥。",
+                "dismiss": "关闭"
             }
         },
         "llmPrice": {
@@ -278,6 +284,8 @@
             "lastSync": "上次同步",
             "neverSynced": "从未同步",
             "syncSuccess": "渠道同步成功",
+            "syncStarted": "渠道同步已开始",
+            "syncAlreadyRunning": "渠道同步正在运行，请稍后查看结果",
             "syncFailed": "渠道同步失败"
         },
         "account": {
@@ -308,20 +316,14 @@
         "info": {
             "title": "版本信息",
             "currentVersion": "当前版本",
-            "latestVersion": "最新版本",
-            "buildTime": "构建时间",
-            "publishedAt": "发布时间",
+            "deploymentMethod": "部署方式",
+            "dockerCompose": "Docker Compose",
+            "dockerComposeHint": "本项目当前只保留 Docker Compose 部署口径；应用内自更新已禁用。升级时请重新构建镜像，并执行 docker compose up -d --force-recreate 重建容器。",
             "github": "GitHub 仓库",
             "unknown": "未知",
             "versionMismatch": "版本不匹配",
             "versionMismatchHint": "前端版本 ({frontend}) 与后端版本 ({backend}) 不一致，可能是浏览器缓存问题，请强制刷新页面。",
-            "forceRefresh": "强制刷新",
-            "newVersionAvailable": "发现新版本可用",
-            "newVersionAvailableHint": "请先备份数据，然后更新系统",
-            "updateNow": "立即更新",
-            "updating": "更新中...",
-            "updateSuccess": "更新成功，服务即将重启",
-            "updateFailed": "更新失败"
+            "forceRefresh": "强制刷新"
         },
         "log": {
             "title": "日志设置",
@@ -338,7 +340,8 @@
             "clear": {
                 "label": "清空历史日志",
                 "button": "清空",
-                "clearing": "清空中..."
+                "clearing": "清空中...",
+                "confirm": "清空历史日志会删除当前缓存和数据库中的日志记录，此操作不可撤销。确认继续吗？"
             },
             "clearSuccess": "日志已清空",
             "clearFailed": "清空失败"
@@ -553,13 +556,7 @@
             "typeGemini": "Gemini",
             "typeVolcengine": "火山引擎",
             "typeOpenAIImageGeneration": "OpenAI 图片生成",
-            "typeGithubCopilot": "GitHub Copilot",
-            "typeAntigravity": "Antigravity",
             "typeZen": "OpenCode Zen",
-            "githubCopilotHint": "GitHub Copilot 需要通过 OAuth 设备授权码方式认证",
-            "githubCopilotHintDesc": "请先在 GitHub 完成设备授权流程获取访问令牌，然后将令牌填入下方 API Key 字段。暂不支持自动授权流程。",
-            "antigravityHint": "Antigravity 需要通过 OAuth 网页授权方式认证",
-            "antigravityHintDesc": "请先在 Antigravity 官网完成授权，获取 API Token 后填入下方 API Key 字段。",
             "autoSync": "自动同步",
             "autoGroup": "自动分组",
             "autoGroupNone": "不自动分组",
@@ -582,31 +579,14 @@
             "testNeedBaseUrlAndKey": "请先填写 Base URL 和 API Key",
             "testResultTitle": "测试结果",
             "testResultSummary": "共 {total} 个模型，通过 {passed} 个",
-            "copilotDeviceFlow": "GitHub Device Flow 授权",
-            "copilotStartAuth": "开始 GitHub 授权",
-            "copilotUserCodeHint": "请访问授权页面，在浏览器中输入以下验证码完成授权：",
-            "copilotOpenGitHub": "打开 GitHub 授权页面",
-            "copilotWaiting": "等待授权中，请在 GitHub 页面完成操作...",
-            "copilotCodeCopied": "验证码已复制",
-            "copilotSuccess": "授权成功，API Token 已自动填入",
-            "copilotExpired": "授权码已过期，请重新发起授权",
-            "copilotDenied": "授权被拒绝",
-            "copilotRetry": "重新授权",
-            "copilotError": "授权失败，请重试",
             "fetchedModelList": "请求到的模型",
             "modelSelectAllFetched": "全选请求结果",
             "modelClearFetched": "清空请求结果",
-            "antigravityOAuthTitle": "Antigravity 网页授权",
-            "antigravityConfigHint": "使用内置默认 OAuth 应用（Gemini CLI），也可通过 OCTOPUS_ANTIGRAVITY_CLIENT_ID / CLIENT_SECRET 环境变量自定义",
-            "antigravityStartAuth": "开始 Antigravity 授权",
-            "antigravityWaiting": "等待网页授权完成，请在新窗口操作...",
-            "antigravityOpenAgain": "重新打开授权页面",
-            "antigravitySuccess": "授权成功，Token 已自动填入",
-            "antigravityRetry": "重新授权",
-            "antigravityAuthFailed": "Antigravity 授权失败",
             "upstreamIgnoredModels": "上游模型忽略列表",
             "upstreamIgnoredModelsPlaceholder": "例如：gpt-4.1-nano,regex:^sora-.*$，用英文逗号分隔",
-            "upstreamIgnoredModelsHelp": "自动同步和手动检测会跳过这些新增模型；支持精确匹配和 regex: 正则。"
+            "upstreamIgnoredModelsHelp": "自动同步和手动检测会跳过这些新增模型；支持精确匹配和 regex: 正则。",
+            "dryRun": "仅转换请求（不调用上游）",
+            "realRequestConfirm": "此操作会向上游发送 {count} 次真实请求，可能产生费用或触发限流。确认继续？"
         },
         "models": {
             "selectAll": "全选",
@@ -639,11 +619,14 @@
             "modelProtocolDetect": "检测协议",
             "modelProtocolDetecting": "检测中",
             "modelProtocolDetectDone": "已检测 {count} 个模型的协议",
+            "modelProtocolDetectFailed": "协议检测失败",
             "modelProtocolApplyRecommended": "应用推荐协议",
             "modelProtocolApplyDone": "已应用 {count} 个推荐协议",
             "modelProtocolRecommended": "推荐",
             "modelProtocolProbeSummary": "协议 {passed}/{total}",
-            "modelProtocolNoRecommendation": "无推荐"
+            "modelProtocolNoRecommendation": "无推荐",
+            "dryRun": "仅转换请求（不调用上游）",
+            "realRequestConfirm": "此操作会向上游发送 {count} 次真实请求，可能产生费用或触发限流。确认继续？"
         }
     },
     "doc": {

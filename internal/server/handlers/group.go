@@ -51,10 +51,6 @@ func init() {
 			router.NewRoute("/delete/:id", http.MethodDelete).
 				Handle(deleteGroup),
 		)
-	// AddRoute(
-	// 	router.NewRoute("/auto-add-item", http.MethodPost).
-	// 		Handle(autoAddGroupItem),
-	// )
 }
 
 func getGroupList(c *gin.Context) {
@@ -109,6 +105,9 @@ func updateGroup(c *gin.Context) {
 			return
 		}
 	}
+	if len(req.ItemsToDelete) > 0 && !requireDestructiveConfirm(c, "delete-group-item") {
+		return
+	}
 	group, err := op.GroupUpdate(&req, c.Request.Context())
 	if err != nil {
 		resp.Error(c, http.StatusInternalServerError, err.Error())
@@ -118,6 +117,9 @@ func updateGroup(c *gin.Context) {
 }
 
 func deleteGroup(c *gin.Context) {
+	if !requireDestructiveConfirm(c, "delete-group") {
+		return
+	}
 	id := c.Param("id")
 	idNum, err := strconv.Atoi(id)
 	if err != nil {
@@ -130,23 +132,3 @@ func deleteGroup(c *gin.Context) {
 	}
 	resp.Success(c, "group deleted successfully")
 }
-
-// func autoAddGroupItem(c *gin.Context) {
-// 	var req struct {
-// 		ID int `json:"id"`
-// 	}
-// 	if err := c.ShouldBindJSON(&req); err != nil {
-// 		resp.Error(c, http.StatusBadRequest, err.Error())
-// 		return
-// 	}
-// 	if req.ID <= 0 {
-// 		resp.Error(c, http.StatusBadRequest, "invalid id")
-// 		return
-// 	}
-// 	err := worker.AutoAddGroupItem(req.ID, c.Request.Context())
-// 	if err != nil {
-// 		resp.Error(c, http.StatusInternalServerError, err.Error())
-// 		return
-// 	}
-// 	resp.Success(c, nil)
-// }

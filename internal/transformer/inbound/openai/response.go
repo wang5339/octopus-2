@@ -701,24 +701,30 @@ func formatSSEData(data []byte) []byte {
 // Request types
 
 type ResponsesRequest struct {
-	Model             string                `json:"model"`
-	Instructions      string                `json:"instructions,omitempty"`
-	Input             ResponsesInput        `json:"input"`
-	Tools             []ResponsesTool       `json:"tools,omitempty"`
-	ToolChoice        *ResponsesToolChoice  `json:"tool_choice,omitempty"`
-	ParallelToolCalls *bool                 `json:"parallel_tool_calls,omitempty"`
-	Stream            *bool                 `json:"stream,omitempty"`
-	Text              *ResponsesTextOptions `json:"text,omitempty"`
-	Store             *bool                 `json:"store,omitempty"`
-	ServiceTier       *string               `json:"service_tier,omitempty"`
-	User              *string               `json:"user,omitempty"`
-	Metadata          map[string]string     `json:"metadata,omitempty"`
-	MaxOutputTokens   *int64                `json:"max_output_tokens,omitempty"`
-	Temperature       *float64              `json:"temperature,omitempty"`
-	TopP              *float64              `json:"top_p,omitempty"`
-	Reasoning         *ResponsesReasoning   `json:"reasoning,omitempty"`
-	Include           []string              `json:"include,omitempty"`
-	TopLogprobs       *int64                `json:"top_logprobs,omitempty"`
+	Model                string                `json:"model"`
+	Instructions         string                `json:"instructions,omitempty"`
+	Input                ResponsesInput        `json:"input"`
+	Tools                []ResponsesTool       `json:"tools,omitempty"`
+	ToolChoice           *ResponsesToolChoice  `json:"tool_choice,omitempty"`
+	ParallelToolCalls    *bool                 `json:"parallel_tool_calls,omitempty"`
+	Stream               *bool                 `json:"stream,omitempty"`
+	Text                 *ResponsesTextOptions `json:"text,omitempty"`
+	Store                *bool                 `json:"store,omitempty"`
+	ServiceTier          *string               `json:"service_tier,omitempty"`
+	User                 *string               `json:"user,omitempty"`
+	SafetyIdentifier     *string               `json:"safety_identifier,omitempty"`
+	PromptCacheKey       *string               `json:"prompt_cache_key,omitempty"`
+	PromptCacheRetention *string               `json:"prompt_cache_retention,omitempty"`
+	PreviousResponseID   *string               `json:"previous_response_id,omitempty"`
+	Truncation           *string               `json:"truncation,omitempty"`
+	ExtraBody            json.RawMessage       `json:"extra_body,omitempty"`
+	Metadata             map[string]string     `json:"metadata,omitempty"`
+	MaxOutputTokens      *int64                `json:"max_output_tokens,omitempty"`
+	Temperature          *float64              `json:"temperature,omitempty"`
+	TopP                 *float64              `json:"top_p,omitempty"`
+	Reasoning            *ResponsesReasoning   `json:"reasoning,omitempty"`
+	Include              []string              `json:"include,omitempty"`
+	TopLogprobs          *int64                `json:"top_logprobs,omitempty"`
 }
 
 type ResponsesInput struct {
@@ -939,20 +945,26 @@ type ResponsesContentPart struct {
 
 func convertToInternalRequest(req *ResponsesRequest) (*model.InternalLLMRequest, error) {
 	chatReq := &model.InternalLLMRequest{
-		Model:               req.Model,
-		Temperature:         req.Temperature,
-		TopP:                req.TopP,
-		Stream:              req.Stream,
-		Store:               req.Store,
-		ServiceTier:         req.ServiceTier,
-		User:                req.User,
-		Metadata:            req.Metadata,
-		MaxCompletionTokens: req.MaxOutputTokens,
-		TopLogprobs:         req.TopLogprobs,
-		ParallelToolCalls:   req.ParallelToolCalls,
-		RawAPIFormat:        model.APIFormatOpenAIResponse,
-		TransformerMetadata: map[string]string{},
-		Include:             append([]string(nil), req.Include...),
+		Model:                req.Model,
+		Temperature:          req.Temperature,
+		TopP:                 req.TopP,
+		Stream:               req.Stream,
+		Store:                req.Store,
+		ServiceTier:          req.ServiceTier,
+		User:                 req.User,
+		SafetyIdentifier:     req.SafetyIdentifier,
+		PromptCacheKey:       req.PromptCacheKey,
+		PromptCacheRetention: req.PromptCacheRetention,
+		PreviousResponseID:   req.PreviousResponseID,
+		Truncation:           req.Truncation,
+		ExtraBody:            req.ExtraBody,
+		Metadata:             req.Metadata,
+		MaxCompletionTokens:  req.MaxOutputTokens,
+		TopLogprobs:          req.TopLogprobs,
+		ParallelToolCalls:    req.ParallelToolCalls,
+		RawAPIFormat:         model.APIFormatOpenAIResponse,
+		TransformerMetadata:  map[string]string{},
+		Include:              append([]string(nil), req.Include...),
 	}
 
 	if req.Input.Text == nil && len(req.Input.Items) > 0 {

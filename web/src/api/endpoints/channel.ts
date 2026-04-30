@@ -3,6 +3,12 @@ import { apiClient } from '../client';
 import { logger } from '@/lib/logger';
 import { formatCount, formatMoney, formatTime } from '@/lib/utils';
 import { StatsChannel, type StatsMetricsFormatted } from './stats';
+
+const MODEL_TEST_TIMEOUT_MS = 190_000;
+const MODEL_PROTOCOL_DETECT_TIMEOUT_MS = 190_000;
+const FETCH_MODEL_TIMEOUT_MS = 60_000;
+const CHANNEL_SYNC_STATUS_REFETCH_MS = 5_000;
+
 /**
  * 渠道类型枚举
  */
@@ -14,8 +20,8 @@ export enum ChannelType {
     Volcengine = 4,
     OpenAIEmbedding = 5,
     OpenAIImageGeneration = 6,
-    GithubCopilot = 7,
-    Antigravity = 8,
+    // 7/8 是已移除渠道的历史编号。保留 Zen=9，
+    // 避免历史数据中的 Zen 渠道编号错位。
     Zen = 9,
 }
 
@@ -252,7 +258,13 @@ export function useUpdateChannel() {
 
     return useMutation({
         mutationFn: async (data: UpdateChannelRequest) => {
-            return apiClient.post<ChannelServer>('/api/v1/channel/update', data);
+            return apiClient.post<ChannelServer>(
+                '/api/v1/channel/update',
+                data,
+                data.keys_to_delete?.length
+                    ? { headers: { 'X-Octopus-Confirm': 'delete-channel-key' } }
+                    : undefined,
+            );
         },
         onSuccess: (data) => {
             logger.log('渠道更新成功:', data);
@@ -278,7 +290,9 @@ export function useDeleteChannel() {
 
     return useMutation({
         mutationFn: async (id: number) => {
-            return apiClient.delete<null>(`/api/v1/channel/delete/${id}`);
+            return apiClient.delete<null>(`/api/v1/channel/delete/${id}`, {
+                headers: { 'X-Octopus-Confirm': 'delete-channel' },
+            });
         },
         onSuccess: () => {
             logger.log('渠道删除成功');
@@ -336,7 +350,11 @@ export function useEnableChannel() {
 export function useFetchModel() {
     return useMutation({
         mutationFn: async (data: FetchModelRequest) => {
-            return apiClient.post<string[]>('/api/v1/channel/fetch-model', data);
+            return apiClient.post<string[]>(
+                '/api/v1/channel/fetch-model',
+                data,
+                { timeoutMs: FETCH_MODEL_TIMEOUT_MS }
+            );
         },
         onSuccess: (data) => {
             logger.log('模型列表获取成功:', data);
@@ -363,7 +381,11 @@ export function useDetectChannelUpstreamUpdates() {
     const queryClient = useQueryClient();
     return useMutation({
         mutationFn: async (data: DetectChannelUpstreamUpdatesRequest) => {
-            return apiClient.post<DetectChannelUpstreamUpdatesResult>('/api/v1/channel/upstream-updates/detect', data);
+            return apiClient.post<DetectChannelUpstreamUpdatesResult>(
+                '/api/v1/channel/upstream-updates/detect',
+                data,
+                { timeoutMs: FETCH_MODEL_TIMEOUT_MS }
+            );
         },
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['channels', 'list'] });
@@ -385,7 +407,13 @@ export function useApplyChannelUpstreamUpdates() {
     const queryClient = useQueryClient();
     return useMutation({
         mutationFn: async (data: ApplyChannelUpstreamUpdatesRequest) => {
-            return apiClient.post('/api/v1/channel/upstream-updates/apply', data);
+            return apiClient.post(
+                '/api/v1/channel/upstream-updates/apply',
+                data,
+                data.remove_models?.length
+                    ? { headers: { 'X-Octopus-Confirm': 'delete-channel-model' } }
+                    : undefined,
+            );
         },
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['channels', 'list'] });
@@ -402,6 +430,7 @@ export type ModelProtocolDetectRequest = {
     id: number;
     models: string[];
     types?: ChannelType[];
+    dry_run?: boolean;
 };
 
 export type ModelProtocolProbeResult = {
@@ -409,6 +438,7 @@ export type ModelProtocolProbeResult = {
     passed: boolean;
     error?: string;
     delay?: number;
+    dry_run?: boolean;
 };
 
 export type ModelProtocolDetectResult = {
@@ -431,7 +461,11 @@ export type ApplyModelProtocolRecommendationsResult = {
 export function useDetectChannelModelProtocols() {
     return useMutation({
         mutationFn: async (data: ModelProtocolDetectRequest) => {
-            return apiClient.post<ModelProtocolDetectResult[]>('/api/v1/channel/model-protocols/detect', data);
+            return apiClient.post<ModelProtocolDetectResult[]>(
+                '/api/v1/channel/model-protocols/detect',
+                data,
+                { timeoutMs: MODEL_PROTOCOL_DETECT_TIMEOUT_MS }
+            );
         },
         onSuccess: (data) => {
             logger.log('模型协议检测完成:', data);
@@ -477,6 +511,23 @@ export function useLastSyncTime() {
         refetchInterval: 30000,
     });
 }
+
+export type SyncChannelStatus = {
+    started?: boolean;
+    running: boolean;
+    last_sync_time: string;
+};
+
+export function useSyncStatus() {
+    return useQuery({
+        queryKey: ['channels', 'sync-status'],
+        queryFn: async () => {
+            return apiClient.get<SyncChannelStatus>('/api/v1/channel/sync-status');
+        },
+        refetchInterval: CHANNEL_SYNC_STATUS_REFETCH_MS,
+    });
+}
+
 /**
  * 同步渠道 Hook
  * 
@@ -489,11 +540,12 @@ export function useSyncChannel() {
     const queryClient = useQueryClient();
     return useMutation({
         mutationFn: async () => {
-            return apiClient.post<null>('/api/v1/channel/sync');
+            return apiClient.post<SyncChannelStatus>('/api/v1/channel/sync');
         },
         onSuccess: () => {
             logger.log('渠道同步成功');
             queryClient.invalidateQueries({ queryKey: ['channels', 'last-sync-time'] });
+            queryClient.invalidateQueries({ queryKey: ['channels', 'sync-status'] });
         },
         onError: (error) => {
             logger.error('渠道同步失败:', error);
@@ -515,6 +567,7 @@ export function useSyncChannel() {
 export type TestModelRequest = {
     channel_id: number;
     models: string[];
+    dry_run?: boolean;
 };
 
 export type TestModelResult = {
@@ -527,7 +580,11 @@ export type TestModelResult = {
 export function useTestChannelModels() {
     return useMutation({
         mutationFn: async (data: TestModelRequest) => {
-            return apiClient.post<TestModelResult[]>('/api/v1/channel/test-models', data);
+            return apiClient.post<TestModelResult[]>(
+                '/api/v1/channel/test-models',
+                data,
+                { timeoutMs: MODEL_TEST_TIMEOUT_MS }
+            );
         },
         onSuccess: (data) => {
             logger.log('模型测试完成:', data);
@@ -546,80 +603,24 @@ export type TestModelByConfigRequest = {
     channel_proxy?: string | null;
     custom_header?: Array<CustomHeader>;
     models: string[];
+    param_override?: string | null;
+    dry_run?: boolean;
 };
 
 export function useTestChannelModelsByConfig() {
     return useMutation({
         mutationFn: async (data: TestModelByConfigRequest) => {
-            return apiClient.post<TestModelResult[]>('/api/v1/channel/test-models-by-config', data);
+            return apiClient.post<TestModelResult[]>(
+                '/api/v1/channel/test-models-by-config',
+                data,
+                { timeoutMs: MODEL_TEST_TIMEOUT_MS }
+            );
         },
         onSuccess: (data) => {
             logger.log('模型(配置)测试完成:', data);
         },
         onError: (error) => {
             logger.error('模型(配置)测试失败:', error);
-        },
-    });
-}
-
-// ---- GitHub Copilot Device Flow ----
-
-export type CopilotDeviceCodeResponse = {
-    device_code: string;
-    user_code: string;
-    verification_uri: string;
-    expires_in: number;
-    interval: number;
-};
-
-export type CopilotPollResponse = {
-    access_token?: string;
-    token_type?: string;
-    scope?: string;
-    error?: string;
-};
-
-export function useCopilotRequestDeviceCode() {
-    return useMutation({
-        mutationFn: async () => {
-            return apiClient.post<CopilotDeviceCodeResponse>('/api/v1/channel/copilot/device-code', {});
-        },
-    });
-}
-
-export function useCopilotPollToken() {
-    return useMutation({
-        mutationFn: async (deviceCode: string) => {
-            return apiClient.post<CopilotPollResponse>('/api/v1/channel/copilot/poll-token', { device_code: deviceCode });
-        },
-    });
-}
-
-export type AntigravityOAuthStartResponse = {
-    state: string;
-    auth_url: string;
-};
-
-export type AntigravityOAuthPollResponse = {
-    status: 'pending' | 'authorized' | 'failed';
-    access_token?: string;
-    token_type?: string;
-    scope?: string;
-    error?: string;
-};
-
-export function useAntigravityOAuthStart() {
-    return useMutation({
-        mutationFn: async () => {
-            return apiClient.post<AntigravityOAuthStartResponse>('/api/v1/channel/antigravity/oauth/start', {});
-        },
-    });
-}
-
-export function useAntigravityOAuthPoll() {
-    return useMutation({
-        mutationFn: async (state: string) => {
-            return apiClient.post<AntigravityOAuthPollResponse>('/api/v1/channel/antigravity/oauth/poll', { state });
         },
     });
 }

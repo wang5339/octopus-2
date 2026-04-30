@@ -48,16 +48,6 @@ export interface RelayLog {
 }
 
 /**
- * 日志列表查询参数
- */
-export interface LogListParams {
-    page?: number;
-    page_size?: number;
-    start_time?: number;
-    end_time?: number;
-}
-
-/**
  * 清空日志 Hook
  * 
  * @example
@@ -70,7 +60,9 @@ export function useClearLogs() {
 
     return useMutation({
         mutationFn: async () => {
-            return apiClient.delete<null>('/api/v1/log/clear');
+            return apiClient.delete<null>('/api/v1/log/clear', {
+                headers: { 'X-Octopus-Confirm': 'clear-logs' },
+            });
         },
         onSuccess: () => {
             logger.log('日志清空成功');
@@ -154,16 +146,29 @@ export function useLogs(options: { pageSize?: number } = {}) {
 
     useEffect(() => {
         let cancelled = false;
+        let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+        let reconnectAttempt = 0;
+
+        const scheduleReconnect = () => {
+            if (cancelled) return;
+            reconnectAttempt += 1;
+            const delay = Math.min(30000, 1000 * 2 ** Math.min(reconnectAttempt - 1, 5));
+            reconnectTimer = setTimeout(() => {
+                reconnectTimer = null;
+                connect();
+            }, delay);
+        };
 
         const connect = async () => {
             try {
                 const { token } = await apiClient.get<{ token: string }>('/api/v1/log/stream-token');
                 if (cancelled) return;
 
-                const eventSource = new EventSource(`${API_BASE_URL}/api/v1/log/stream?token=${token}`);
+                const eventSource = new EventSource(`${API_BASE_URL}/api/v1/log/stream?token=${encodeURIComponent(token)}`);
                 eventSourceRef.current = eventSource;
 
                 eventSource.onopen = () => {
+                    reconnectAttempt = 0;
                     setIsConnected(true);
                     setError(null);
                 };
@@ -195,11 +200,13 @@ export function useLogs(options: { pageSize?: number } = {}) {
                     setError(new Error('SSE 连接断开'));
                     eventSource.close();
                     eventSourceRef.current = null;
+                    scheduleReconnect();
                 };
             } catch (e) {
                 if (cancelled) return;
                 setError(e instanceof Error ? e : new Error('获取 stream token 失败'));
                 logger.error('获取 stream token 失败:', e);
+                scheduleReconnect();
             }
         };
 
@@ -207,6 +214,9 @@ export function useLogs(options: { pageSize?: number } = {}) {
 
         return () => {
             cancelled = true;
+            if (reconnectTimer) {
+                clearTimeout(reconnectTimer);
+            }
             eventSourceRef.current?.close();
             eventSourceRef.current = null;
             setIsConnected(false);

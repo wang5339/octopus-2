@@ -55,9 +55,6 @@ func DBExportAll(ctx context.Context, includeLogs, includeStats bool) (*model.DB
 		if err := conn.Find(&d.StatsHourly).Error; err != nil {
 			return nil, fmt.Errorf("export stats_hourly: %w", err)
 		}
-		if err := conn.Find(&d.StatsModel).Error; err != nil {
-			return nil, fmt.Errorf("export stats_model: %w", err)
-		}
 		if err := conn.Find(&d.StatsChannel).Error; err != nil {
 			return nil, fmt.Errorf("export stats_channel: %w", err)
 		}
@@ -91,6 +88,10 @@ func DBImportIncremental(ctx context.Context, dump *model.DBDump) (*model.DBImpo
 	res := &model.DBImportResult{RowsAffected: map[string]int64{}}
 
 	err := conn.Transaction(func(tx *gorm.DB) error {
+		if err := validateDBImportIdentityConflicts(tx, dump); err != nil {
+			return err
+		}
+
 		// base tables
 		if n, err := createDoNothing(tx, dump.Channels); err != nil {
 			return fmt.Errorf("import channels: %w", err)
@@ -144,11 +145,6 @@ func DBImportIncremental(ctx context.Context, dump *model.DBDump) (*model.DBImpo
 			} else {
 				res.RowsAffected["stats_hourly"] = n
 			}
-			if n, err := createUpsertAll(tx, dump.StatsModel, []clause.Column{{Name: "id"}}); err != nil {
-				return fmt.Errorf("import stats_model: %w", err)
-			} else {
-				res.RowsAffected["stats_model"] = n
-			}
 			if n, err := createUpsertAll(tx, dump.StatsChannel, []clause.Column{{Name: "channel_id"}}); err != nil {
 				return fmt.Errorf("import stats_channel: %w", err)
 			} else {
@@ -180,6 +176,181 @@ func DBImportIncremental(ctx context.Context, dump *model.DBDump) (*model.DBImpo
 		return nil, err
 	}
 	return res, nil
+}
+
+func validateDBImportIdentityConflicts(tx *gorm.DB, dump *model.DBDump) error {
+	if err := validateChannelImportConflicts(tx, dump.Channels); err != nil {
+		return err
+	}
+	if err := validateGroupImportConflicts(tx, dump.Groups); err != nil {
+		return err
+	}
+	if err := validateAPIKeyImportConflicts(tx, dump.APIKeys); err != nil {
+		return err
+	}
+	return nil
+}
+
+func validateChannelImportConflicts(tx *gorm.DB, channels []model.Channel) error {
+	byID := make(map[int]model.Channel, len(channels))
+	byName := make(map[string]model.Channel, len(channels))
+	ids := make([]int, 0, len(channels))
+	names := make([]string, 0, len(channels))
+	for _, channel := range channels {
+		if channel.ID != 0 {
+			if prev, ok := byID[channel.ID]; ok && prev.Name != channel.Name {
+				return fmt.Errorf("import channels: duplicate channel id %d maps to both %q and %q", channel.ID, prev.Name, channel.Name)
+			}
+			if _, ok := byID[channel.ID]; !ok {
+				ids = append(ids, channel.ID)
+			}
+			byID[channel.ID] = channel
+		}
+		if channel.Name != "" {
+			if prev, ok := byName[channel.Name]; ok && prev.ID != channel.ID {
+				return fmt.Errorf("import channels: duplicate channel name %q maps to both id %d and id %d", channel.Name, prev.ID, channel.ID)
+			}
+			if _, ok := byName[channel.Name]; !ok {
+				names = append(names, channel.Name)
+			}
+			byName[channel.Name] = channel
+		}
+	}
+	if len(ids) == 0 && len(names) == 0 {
+		return nil
+	}
+
+	var existing []model.Channel
+	query := tx.Model(&model.Channel{})
+	switch {
+	case len(ids) > 0 && len(names) > 0:
+		query = query.Where("id IN ? OR name IN ?", ids, names)
+	case len(ids) > 0:
+		query = query.Where("id IN ?", ids)
+	default:
+		query = query.Where("name IN ?", names)
+	}
+	if err := query.Find(&existing).Error; err != nil {
+		return err
+	}
+
+	for _, current := range existing {
+		if incoming, ok := byID[current.ID]; ok && incoming.Name != "" && current.Name != incoming.Name {
+			return fmt.Errorf("import channels: channel id %d already belongs to %q, dump has %q", current.ID, current.Name, incoming.Name)
+		}
+		if incoming, ok := byName[current.Name]; ok && incoming.ID != 0 && current.ID != incoming.ID {
+			return fmt.Errorf("import channels: channel name %q already belongs to id %d, dump has id %d", current.Name, current.ID, incoming.ID)
+		}
+	}
+	return nil
+}
+
+func validateGroupImportConflicts(tx *gorm.DB, groups []model.Group) error {
+	byID := make(map[int]model.Group, len(groups))
+	byName := make(map[string]model.Group, len(groups))
+	ids := make([]int, 0, len(groups))
+	names := make([]string, 0, len(groups))
+	for _, group := range groups {
+		if group.ID != 0 {
+			if prev, ok := byID[group.ID]; ok && prev.Name != group.Name {
+				return fmt.Errorf("import groups: duplicate group id %d maps to both %q and %q", group.ID, prev.Name, group.Name)
+			}
+			if _, ok := byID[group.ID]; !ok {
+				ids = append(ids, group.ID)
+			}
+			byID[group.ID] = group
+		}
+		if group.Name != "" {
+			if prev, ok := byName[group.Name]; ok && prev.ID != group.ID {
+				return fmt.Errorf("import groups: duplicate group name %q maps to both id %d and id %d", group.Name, prev.ID, group.ID)
+			}
+			if _, ok := byName[group.Name]; !ok {
+				names = append(names, group.Name)
+			}
+			byName[group.Name] = group
+		}
+	}
+	if len(ids) == 0 && len(names) == 0 {
+		return nil
+	}
+
+	var existing []model.Group
+	query := tx.Model(&model.Group{})
+	switch {
+	case len(ids) > 0 && len(names) > 0:
+		query = query.Where("id IN ? OR name IN ?", ids, names)
+	case len(ids) > 0:
+		query = query.Where("id IN ?", ids)
+	default:
+		query = query.Where("name IN ?", names)
+	}
+	if err := query.Find(&existing).Error; err != nil {
+		return err
+	}
+
+	for _, current := range existing {
+		if incoming, ok := byID[current.ID]; ok && incoming.Name != "" && current.Name != incoming.Name {
+			return fmt.Errorf("import groups: group id %d already belongs to %q, dump has %q", current.ID, current.Name, incoming.Name)
+		}
+		if incoming, ok := byName[current.Name]; ok && incoming.ID != 0 && current.ID != incoming.ID {
+			return fmt.Errorf("import groups: group name %q already belongs to id %d, dump has id %d", current.Name, current.ID, incoming.ID)
+		}
+	}
+	return nil
+}
+
+func validateAPIKeyImportConflicts(tx *gorm.DB, apiKeys []model.APIKey) error {
+	byID := make(map[int]model.APIKey, len(apiKeys))
+	byHash := make(map[string]model.APIKey, len(apiKeys))
+	ids := make([]int, 0, len(apiKeys))
+	hashes := make([]string, 0, len(apiKeys))
+	for _, apiKey := range apiKeys {
+		if apiKey.ID != 0 {
+			if prev, ok := byID[apiKey.ID]; ok && prev.APIKeyHash != apiKey.APIKeyHash {
+				return fmt.Errorf("import api_keys: duplicate api key id %d has different hashes", apiKey.ID)
+			}
+			if _, ok := byID[apiKey.ID]; !ok {
+				ids = append(ids, apiKey.ID)
+			}
+			byID[apiKey.ID] = apiKey
+		}
+		if apiKey.APIKeyHash != "" {
+			if prev, ok := byHash[apiKey.APIKeyHash]; ok && prev.ID != apiKey.ID {
+				return fmt.Errorf("import api_keys: duplicate api key hash maps to both id %d and id %d", prev.ID, apiKey.ID)
+			}
+			if _, ok := byHash[apiKey.APIKeyHash]; !ok {
+				hashes = append(hashes, apiKey.APIKeyHash)
+			}
+			byHash[apiKey.APIKeyHash] = apiKey
+		}
+	}
+	if len(ids) == 0 && len(hashes) == 0 {
+		return nil
+	}
+
+	var existing []model.APIKey
+	query := tx.Model(&model.APIKey{})
+	switch {
+	case len(ids) > 0 && len(hashes) > 0:
+		query = query.Where("id IN ? OR api_key_hash IN ?", ids, hashes)
+	case len(ids) > 0:
+		query = query.Where("id IN ?", ids)
+	default:
+		query = query.Where("api_key_hash IN ?", hashes)
+	}
+	if err := query.Find(&existing).Error; err != nil {
+		return err
+	}
+
+	for _, current := range existing {
+		if incoming, ok := byID[current.ID]; ok && incoming.APIKeyHash != "" && current.APIKeyHash != incoming.APIKeyHash {
+			return fmt.Errorf("import api_keys: api key id %d already has a different hash", current.ID)
+		}
+		if incoming, ok := byHash[current.APIKeyHash]; ok && incoming.ID != 0 && current.ID != incoming.ID {
+			return fmt.Errorf("import api_keys: api key hash already belongs to id %d, dump has id %d", current.ID, incoming.ID)
+		}
+	}
+	return nil
 }
 
 func createDoNothing[T any](tx *gorm.DB, rows []T) (int64, error) {

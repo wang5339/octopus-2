@@ -142,7 +142,13 @@ export function useUpdateGroup() {
 
     return useMutation({
         mutationFn: async (data: GroupUpdateRequest) => {
-            return apiClient.post<Group>('/api/v1/group/update', data);
+            return apiClient.post<Group>(
+                '/api/v1/group/update',
+                data,
+                data.items_to_delete?.length
+                    ? { headers: { 'X-Octopus-Confirm': 'delete-group-item' } }
+                    : undefined,
+            );
         },
         onSuccess: (data) => {
             logger.log('分组更新成功:', data);
@@ -167,7 +173,9 @@ export function useDeleteGroup() {
 
     return useMutation({
         mutationFn: async (id: number) => {
-            return apiClient.delete<null>(`/api/v1/group/delete/${id}`);
+            return apiClient.delete<null>(`/api/v1/group/delete/${id}`, {
+                headers: { 'X-Octopus-Confirm': 'delete-group' },
+            });
         },
         onSuccess: () => {
             logger.log('分组删除成功');
@@ -178,31 +186,3 @@ export function useDeleteGroup() {
         },
     });
 }
-
-/**
- * 自动添加分组 item Hook
- *
- * 后端路由: POST /api/v1/group/auto-add-item
- * Body: { id: number }
- *
- * @example
- * const autoAdd = useAutoAddGroupItem();
- * autoAdd.mutate(1); // 为 groupId=1 自动添加匹配的 items
- */
-// export function useAutoAddGroupItem() {
-//     const queryClient = useQueryClient();
-
-//     return useMutation({
-//         mutationFn: async (groupId: number) => {
-//             return apiClient.post<null>(`/api/v1/group/auto-add-item`, { id: groupId });
-//         },
-//         onSuccess: () => {
-//             logger.log('自动添加分组 item 成功');
-//             queryClient.invalidateQueries({ queryKey: ['groups', 'list'] });
-//         },
-//         onError: (error) => {
-//             logger.error('自动添加分组 item 失败:', error);
-//         },
-//     });
-// }
-

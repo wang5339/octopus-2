@@ -72,6 +72,7 @@ export function SettingLog() {
     };
 
     const handleClearLogs = () => {
+        if (!window.confirm(t('log.clear.confirm'))) return;
         setIsClearing(true);
         clearLogs.mutate(undefined, {
             onSuccess: () => {
@@ -165,4 +166,3 @@ export function SettingLog() {
         </div>
     );
 }
-

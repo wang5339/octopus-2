@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -17,6 +18,17 @@ import (
 	transformerModel "github.com/bestruirui/octopus/internal/transformer/model"
 	transformerOutbound "github.com/bestruirui/octopus/internal/transformer/outbound"
 	"github.com/gin-gonic/gin"
+)
+
+const (
+	maxModelTestCount         = 50
+	maxRealModelTestCount     = 5
+	maxRealProtocolProbeCount = 10
+
+	realModelTestRequestTimeout       = 3 * time.Minute
+	realProtocolDetectRequestTimeout  = 3 * time.Minute
+	singleRealModelRequestTimeout     = 30 * time.Second
+	requestContextStoppedErrorMessage = "Request canceled or timed out: "
 )
 
 func init() {
@@ -78,6 +90,10 @@ func init() {
 				Handle(syncChannel),
 		).
 		AddRoute(
+			router.NewRoute("/sync-status", http.MethodGet).
+				Handle(getSyncStatus),
+		).
+		AddRoute(
 			router.NewRoute("/last-sync-time", http.MethodGet).
 				Handle(getLastSyncTime),
 		)
@@ -126,6 +142,9 @@ func updateChannel(c *gin.Context) {
 		resp.Error(c, http.StatusBadRequest, resp.ErrInvalidJSON)
 		return
 	}
+	if len(req.KeysToDelete) > 0 && !requireDestructiveConfirm(c, "delete-channel-key") {
+		return
+	}
 	channel, err := op.ChannelUpdate(&req, c.Request.Context())
 	if err != nil {
 		resp.Error(c, http.StatusInternalServerError, err.Error())
@@ -162,6 +181,9 @@ func enableChannel(c *gin.Context) {
 }
 
 func deleteChannel(c *gin.Context) {
+	if !requireDestructiveConfirm(c, "delete-channel") {
+		return
+	}
 	id := c.Param("id")
 	idNum, err := strconv.Atoi(id)
 	if err != nil {
@@ -202,6 +224,7 @@ type modelProtocolDetectRequest struct {
 	ID     int                                `json:"id" binding:"required"`
 	Models []string                           `json:"models"`
 	Types  []transformerOutbound.OutboundType `json:"types"`
+	DryRun bool                               `json:"dry_run"`
 }
 
 type modelProtocolProbeResult struct {
@@ -209,6 +232,7 @@ type modelProtocolProbeResult struct {
 	Passed bool                             `json:"passed"`
 	Error  string                           `json:"error,omitempty"`
 	Delay  int                              `json:"delay,omitempty"`
+	DryRun bool                             `json:"dry_run,omitempty"`
 }
 
 type modelProtocolDetectResult struct {
@@ -281,6 +305,9 @@ func applyChannelUpstreamUpdates(c *gin.Context) {
 		resp.Error(c, http.StatusBadRequest, resp.ErrInvalidJSON)
 		return
 	}
+	if len(req.RemoveModels) > 0 && !requireDestructiveConfirm(c, "delete-channel-model") {
+		return
+	}
 	channel, err := op.ChannelGet(req.ID, c.Request.Context())
 	if err != nil {
 		resp.Error(c, http.StatusInternalServerError, err.Error())
@@ -344,20 +371,38 @@ func applyChannelUpstreamUpdates(c *gin.Context) {
 	})
 }
 
+type syncModelsStatusResponse struct {
+	Started      bool      `json:"started,omitempty"`
+	Running      bool      `json:"running"`
+	LastSyncTime time.Time `json:"last_sync_time"`
+}
+
 func syncChannel(c *gin.Context) {
-	task.SyncModelsTask()
-	resp.Success(c, nil)
+	started := task.StartSyncModelsTaskAsync()
+	resp.Success(c, syncModelsStatusResponse{
+		Started:      started,
+		Running:      started || task.IsSyncModelsTaskRunning(),
+		LastSyncTime: task.GetLastSyncModelsTime(),
+	})
+}
+
+func getSyncStatus(c *gin.Context) {
+	resp.Success(c, syncModelsStatusResponse{
+		Running:      task.IsSyncModelsTaskRunning(),
+		LastSyncTime: task.GetLastSyncModelsTime(),
+	})
 }
 
 func getLastSyncTime(c *gin.Context) {
-	time := task.GetLastSyncModelsTime()
-	resp.Success(c, time)
+	lastSyncTime := task.GetLastSyncModelsTime()
+	resp.Success(c, lastSyncTime)
 }
 
 func testChannelModels(c *gin.Context) {
 	type TestModelRequest struct {
 		ChannelID int      `json:"channel_id"`
 		Models    []string `json:"models"`
+		DryRun    bool     `json:"dry_run"`
 	}
 
 	var req TestModelRequest
@@ -366,14 +411,8 @@ func testChannelModels(c *gin.Context) {
 		return
 	}
 
-	if len(req.Models) == 0 {
-		resp.Error(c, http.StatusBadRequest, "models list is empty")
-		return
-	}
-
-	// 限制模型数量，防止资源耗尽
-	if len(req.Models) > 50 {
-		resp.Error(c, http.StatusBadRequest, "too many models (max 50)")
+	if msg := modelTestLimitError(len(req.Models), req.DryRun); msg != "" {
+		resp.Error(c, http.StatusBadRequest, msg)
 		return
 	}
 
@@ -383,13 +422,16 @@ func testChannelModels(c *gin.Context) {
 		return
 	}
 
+	testCtx, cancel := modelTestRequestContext(c.Request.Context(), req.DryRun, realModelTestRequestTimeout)
+	defer cancel()
+
 	results := make([]testModelResult, 0, len(req.Models))
 
 	for _, modelName := range req.Models {
-		results = append(results, runChannelModelTest(c, channel, channel.Type, modelName))
+		results = append(results, runChannelModelTest(testCtx, channel, modelName, req.DryRun))
 	}
 
-	c.JSON(http.StatusOK, results)
+	resp.Success(c, results)
 }
 
 // testModelResult 单次模型测试结果（handler 内部用）
@@ -400,39 +442,92 @@ type testModelResult struct {
 	Delay  int    `json:"delay,omitempty"`
 }
 
-// runChannelModelTest 对单个模型执行一次完整测试。
-// 默认尊重 model_protocol_overrides，适合已保存渠道的常规测试。
-func runChannelModelTest(c *gin.Context, channel *model.Channel, channelType transformerOutbound.OutboundType, modelName string) testModelResult {
-	return runChannelModelTestWithType(c, channel, resolveModelOutboundType(*channel, modelName), modelName)
+func modelTestLimitError(modelCount int, dryRun bool) string {
+	if modelCount == 0 {
+		return "models list is empty"
+	}
+	if modelCount > maxModelTestCount {
+		return fmt.Sprintf("too many models (max %d)", maxModelTestCount)
+	}
+	if !dryRun && modelCount > maxRealModelTestCount {
+		return fmt.Sprintf("too many models for real request (max %d, enable dry_run for zero-cost local transform check)", maxRealModelTestCount)
+	}
+	return ""
 }
 
-// runChannelModelTestWithType 使用指定协议测试模型。
-// 协议探测和表单临时配置测试必须走这里，避免被已有模型级覆盖干扰。
-func runChannelModelTestWithType(c *gin.Context, channel *model.Channel, channelType transformerOutbound.OutboundType, modelName string) testModelResult {
-	result := testModelResult{Model: modelName}
-
-	httpClient, err := helper.ChannelHttpClient(channel)
-	if err != nil {
-		result.Error = "Failed to create HTTP client: " + err.Error()
-		return result
+func modelProtocolDetectLimitError(modelCount, protocolCount int, dryRun bool) string {
+	if modelCount == 0 {
+		return "models list is empty"
 	}
-
-	baseURL := channel.GetBaseUrl()
-	delay, err := helper.GetUrlDelay(httpClient, baseURL, c.Request.Context())
-	if err != nil {
-		result.Error = "Connectivity test failed: " + err.Error()
-		return result
+	if modelCount > maxModelTestCount {
+		return fmt.Sprintf("too many models (max %d)", maxModelTestCount)
 	}
-	result.Delay = delay
+	probeCount := modelCount * protocolCount
+	if !dryRun && probeCount > maxRealProtocolProbeCount {
+		return fmt.Sprintf("too many real protocol probes (max %d, requested %d, enable dry_run for zero-cost local transform check)", maxRealProtocolProbeCount, probeCount)
+	}
+	return ""
+}
 
+func modelTestRequestContext(parent context.Context, dryRun bool, timeout time.Duration) (context.Context, context.CancelFunc) {
+	if dryRun {
+		return context.WithCancel(parent)
+	}
+	return context.WithTimeout(parent, timeout)
+}
+
+// runChannelModelTest 对单个模型执行一次完整测试。
+// 默认尊重 model_protocol_overrides，适合已保存渠道的常规测试。
+func runChannelModelTest(ctx context.Context, channel *model.Channel, modelName string, dryRun bool) testModelResult {
+	return runChannelModelTestWithType(ctx, channel, resolveModelOutboundType(*channel, modelName), modelName, dryRun)
+}
+
+func newChannelModelTestRequest(channelType transformerOutbound.OutboundType, modelName string) transformerModel.InternalLLMRequest {
 	content := "1+1=?"
 	maxTokens := int64(1)
 	temperature := 0.0
 	testReq := transformerModel.InternalLLMRequest{
 		Model:       modelName,
 		Messages:    []transformerModel.Message{{Role: "user", Content: transformerModel.MessageContent{Content: &content}}},
-		MaxTokens:   &maxTokens,
 		Temperature: &temperature,
+	}
+	applyModelTestOutputLimit(&testReq, channelType, modelName, maxTokens)
+	return testReq
+}
+
+func applyModelTestOutputLimit(req *transformerModel.InternalLLMRequest, channelType transformerOutbound.OutboundType, modelName string, maxTokens int64) {
+	if modelTestUsesResponsesMaxOutputTokens(channelType, modelName) {
+		req.MaxCompletionTokens = &maxTokens
+		return
+	}
+	req.MaxTokens = &maxTokens
+}
+
+func modelTestUsesResponsesMaxOutputTokens(channelType transformerOutbound.OutboundType, modelName string) bool {
+	switch channelType {
+	case transformerOutbound.OutboundTypeOpenAIResponse, transformerOutbound.OutboundTypeVolcengine:
+		return true
+	case transformerOutbound.OutboundTypeZen:
+		return strings.HasPrefix(strings.ToLower(modelName), "gpt-")
+	default:
+		return false
+	}
+}
+
+// runChannelModelTestWithType 使用指定协议测试模型。
+// 协议探测和表单临时配置测试必须走这里，避免被已有模型级覆盖干扰。
+func runChannelModelTestWithType(ctx context.Context, channel *model.Channel, channelType transformerOutbound.OutboundType, modelName string, dryRun bool) testModelResult {
+	result := testModelResult{Model: modelName}
+	if err := ctx.Err(); err != nil {
+		result.Error = requestContextStoppedErrorMessage + err.Error()
+		return result
+	}
+
+	baseURL := channel.GetBaseUrl()
+	testReq := newChannelModelTestRequest(channelType, modelName)
+	if err := helper.ApplyParamOverride(&testReq, channel.ParamOverride); err != nil {
+		result.Error = "Failed to apply param override: " + err.Error()
+		return result
 	}
 
 	channelKey := channel.GetChannelKey()
@@ -447,16 +542,34 @@ func runChannelModelTestWithType(c *gin.Context, channel *model.Channel, channel
 		return result
 	}
 
-	outboundReq, err := outboundAdapter.TransformRequest(c.Request.Context(), &testReq, baseURL, channelKey.ChannelKey)
+	outboundReq, err := outboundAdapter.TransformRequest(ctx, &testReq, baseURL, channelKey.ChannelKey)
 	if err != nil {
 		result.Error = "Failed to build request: " + err.Error()
 		return result
 	}
+	if dryRun {
+		result.Passed = true
+		result.Error = "Dry run: request transform succeeded; no upstream request was sent"
+		return result
+	}
 
-	ctx, cancel := context.WithTimeout(c.Request.Context(), 30*time.Second)
+	httpClient, err := helper.ChannelHttpClient(channel)
+	if err != nil {
+		result.Error = "Failed to create HTTP client: " + err.Error()
+		return result
+	}
+
+	delay, err := helper.GetUrlDelay(httpClient, baseURL, ctx)
+	if err != nil {
+		result.Error = "Connectivity test failed: " + err.Error()
+		return result
+	}
+	result.Delay = delay
+
+	reqCtx, cancel := context.WithTimeout(ctx, singleRealModelRequestTimeout)
 	defer cancel()
 
-	httpResp, err := httpClient.Do(outboundReq.WithContext(ctx))
+	httpResp, err := httpClient.Do(outboundReq.WithContext(reqCtx))
 	if err != nil {
 		result.Error = "LLM request failed: " + err.Error()
 		return result
@@ -483,10 +596,12 @@ func testChannelModelsByConfig(c *gin.Context) {
 			Enabled    bool   `json:"enabled"`
 			ChannelKey string `json:"channel_key"`
 		} `json:"keys"`
-		Proxy        bool                 `json:"proxy"`
-		ChannelProxy *string              `json:"channel_proxy"`
-		CustomHeader []model.CustomHeader `json:"custom_header"`
-		Models       []string             `json:"models"`
+		Proxy         bool                 `json:"proxy"`
+		ChannelProxy  *string              `json:"channel_proxy"`
+		ParamOverride *string              `json:"param_override"`
+		CustomHeader  []model.CustomHeader `json:"custom_header"`
+		Models        []string             `json:"models"`
+		DryRun        bool                 `json:"dry_run"`
 	}
 
 	var req TestModelByConfigRequest
@@ -495,23 +610,18 @@ func testChannelModelsByConfig(c *gin.Context) {
 		return
 	}
 
-	if len(req.Models) == 0 {
-		resp.Error(c, http.StatusBadRequest, "models list is empty")
-		return
-	}
-
-	// 限制模型数量，防止资源耗尽
-	if len(req.Models) > 50 {
-		resp.Error(c, http.StatusBadRequest, "too many models (max 50)")
+	if msg := modelTestLimitError(len(req.Models), req.DryRun); msg != "" {
+		resp.Error(c, http.StatusBadRequest, msg)
 		return
 	}
 
 	channel := &model.Channel{
-		Type:         req.Type,
-		BaseUrls:     req.BaseUrls,
-		Proxy:        req.Proxy,
-		ChannelProxy: req.ChannelProxy,
-		CustomHeader: req.CustomHeader,
+		Type:          req.Type,
+		BaseUrls:      req.BaseUrls,
+		Proxy:         req.Proxy,
+		ChannelProxy:  req.ChannelProxy,
+		ParamOverride: req.ParamOverride,
+		CustomHeader:  req.CustomHeader,
 	}
 	for _, k := range req.Keys {
 		channel.Keys = append(channel.Keys, model.ChannelKey{
@@ -520,13 +630,16 @@ func testChannelModelsByConfig(c *gin.Context) {
 		})
 	}
 
+	testCtx, cancel := modelTestRequestContext(c.Request.Context(), req.DryRun, realModelTestRequestTimeout)
+	defer cancel()
+
 	results := make([]testModelResult, 0, len(req.Models))
 
 	for _, modelName := range req.Models {
-		results = append(results, runChannelModelTestWithType(c, channel, req.Type, modelName))
+		results = append(results, runChannelModelTestWithType(testCtx, channel, req.Type, modelName, req.DryRun))
 	}
 
-	c.JSON(http.StatusOK, results)
+	resp.Success(c, results)
 }
 
 func detectChannelModelProtocols(c *gin.Context) {
@@ -545,31 +658,29 @@ func detectChannelModelProtocols(c *gin.Context) {
 	if len(models) == 0 {
 		models = helper.ChannelModelNames(*channel)
 	}
-	if len(models) == 0 {
-		resp.Error(c, http.StatusBadRequest, "models list is empty")
-		return
-	}
-	if len(models) > 50 {
-		resp.Error(c, http.StatusBadRequest, "too many models (max 50)")
+	types := filterModelProtocolTypes(req.Types)
+	if msg := modelProtocolDetectLimitError(len(models), len(types), req.DryRun); msg != "" {
+		resp.Error(c, http.StatusBadRequest, msg)
 		return
 	}
 
-	types := filterModelProtocolTypes(req.Types)
+	testCtx, cancel := modelTestRequestContext(c.Request.Context(), req.DryRun, realProtocolDetectRequestTimeout)
+	defer cancel()
+
 	results := make([]modelProtocolDetectResult, 0, len(models))
 	for _, modelName := range models {
 		itemResults := make([]modelProtocolProbeResult, 0, len(types))
 		for _, protocolType := range types {
-			testResult := runChannelModelTestWithType(c, channel, protocolType, modelName)
-			itemResults = append(itemResults, modelProtocolProbeResult{
-				Type:   protocolType,
-				Passed: testResult.Passed,
-				Error:  testResult.Error,
-				Delay:  testResult.Delay,
-			})
+			testResult := runChannelModelTestWithType(testCtx, channel, protocolType, modelName, req.DryRun)
+			itemResults = append(itemResults, modelProtocolProbeFromTestResult(protocolType, testResult, req.DryRun))
+		}
+		var recommended *transformerOutbound.OutboundType
+		if !req.DryRun {
+			recommended = recommendModelProtocol(channel.Type, modelName, itemResults)
 		}
 		results = append(results, modelProtocolDetectResult{
 			Model:       modelName,
-			Recommended: recommendModelProtocol(channel.Type, modelName, itemResults),
+			Recommended: recommended,
 			Results:     itemResults,
 		})
 	}
@@ -740,6 +851,22 @@ func recommendModelProtocol(channelType transformerOutbound.OutboundType, modelN
 		}
 	}
 	return nil
+}
+
+func modelProtocolProbeFromTestResult(protocolType transformerOutbound.OutboundType, testResult testModelResult, dryRun bool) modelProtocolProbeResult {
+	probe := modelProtocolProbeResult{
+		Type:   protocolType,
+		Passed: testResult.Passed,
+		Error:  testResult.Error,
+		Delay:  testResult.Delay,
+		DryRun: dryRun,
+	}
+	if dryRun {
+		// dry-run 只证明本地请求转换成功，不证明上游路径、认证头、限流语义可用。
+		// 因此协议探测不能把它计入 passed，也不能据此生成可一键应用的推荐。
+		probe.Passed = false
+	}
+	return probe
 }
 
 func outboundTypePtr(protocolType transformerOutbound.OutboundType) *transformerOutbound.OutboundType {

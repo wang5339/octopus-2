@@ -8,7 +8,6 @@ Octopus Web 是 Octopus 的 Web 管理面板前端，负责提供渠道、模型
 
 - 渠道管理：维护 Provider 类型、Base URL、API Key、自定义 Header、代理和模型列表
 - 模型能力：支持模型拉取、模型测试、模型级协议覆盖和上游模型更新检测
-- OAuth 入口：提供 GitHub Copilot Device Flow 与 Antigravity Web OAuth 授权辅助
 - 运营视图：展示请求量、Token、费用、耗时、日志和渠道健康状态
 - 使用文档：内置 OpenAI / Anthropic 等客户端调用示例，方便复制接入
 

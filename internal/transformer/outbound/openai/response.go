@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"net/url"
 	"strings"
@@ -13,6 +12,7 @@ import (
 	"github.com/samber/lo"
 
 	"github.com/bestruirui/octopus/internal/transformer/model"
+	"github.com/bestruirui/octopus/internal/transformer/outbound/responsebody"
 )
 
 // ResponseOutbound implements the Outbound interface for OpenAI Responses API.
@@ -63,7 +63,7 @@ func (o *ResponseOutbound) TransformResponse(ctx context.Context, response *http
 		return nil, fmt.Errorf("response is nil")
 	}
 
-	body, err := io.ReadAll(response.Body)
+	body, err := responsebody.ReadAll(response.Body)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read response body: %w", err)
 	}
@@ -253,22 +253,29 @@ func (o *ResponseOutbound) TransformStream(ctx context.Context, eventData []byte
 
 // ResponsesRequest represents the OpenAI Responses API request format.
 type ResponsesRequest struct {
-	Model             string                `json:"model"`
-	Instructions      string                `json:"instructions,omitempty"`
-	Input             ResponsesInput        `json:"input"`
-	Tools             []ResponsesTool       `json:"tools,omitempty"`
-	ToolChoice        *ResponsesToolChoice  `json:"tool_choice,omitempty"`
-	ParallelToolCalls *bool                 `json:"parallel_tool_calls,omitempty"`
-	Stream            *bool                 `json:"stream,omitempty"`
-	Text              *ResponsesTextOptions `json:"text,omitempty"`
-	Store             *bool                 `json:"store,omitempty"`
-	ServiceTier       *string               `json:"service_tier,omitempty"`
-	User              *string               `json:"user,omitempty"`
-	Metadata          map[string]string     `json:"metadata,omitempty"`
-	MaxOutputTokens   *int64                `json:"max_output_tokens,omitempty"`
-	Temperature       *float64              `json:"temperature,omitempty"`
-	TopP              *float64              `json:"top_p,omitempty"`
-	Reasoning         *ResponsesReasoning   `json:"reasoning,omitempty"`
+	Model                string                `json:"model"`
+	Instructions         string                `json:"instructions,omitempty"`
+	Input                ResponsesInput        `json:"input"`
+	Tools                []ResponsesTool       `json:"tools,omitempty"`
+	ToolChoice           *ResponsesToolChoice  `json:"tool_choice,omitempty"`
+	ParallelToolCalls    *bool                 `json:"parallel_tool_calls,omitempty"`
+	Stream               *bool                 `json:"stream,omitempty"`
+	Text                 *ResponsesTextOptions `json:"text,omitempty"`
+	Store                *bool                 `json:"store,omitempty"`
+	ServiceTier          *string               `json:"service_tier,omitempty"`
+	User                 *string               `json:"user,omitempty"`
+	SafetyIdentifier     *string               `json:"safety_identifier,omitempty"`
+	PromptCacheKey       *string               `json:"prompt_cache_key,omitempty"`
+	PromptCacheRetention *string               `json:"prompt_cache_retention,omitempty"`
+	PreviousResponseID   *string               `json:"previous_response_id,omitempty"`
+	Truncation           *string               `json:"truncation,omitempty"`
+	Metadata             map[string]string     `json:"metadata,omitempty"`
+	MaxOutputTokens      *int64                `json:"max_output_tokens,omitempty"`
+	Temperature          *float64              `json:"temperature,omitempty"`
+	TopP                 *float64              `json:"top_p,omitempty"`
+	TopLogprobs          *int64                `json:"top_logprobs,omitempty"`
+	Include              []string              `json:"include,omitempty"`
+	Reasoning            *ResponsesReasoning   `json:"reasoning,omitempty"`
 }
 
 type ResponsesInput struct {
@@ -385,7 +392,8 @@ type ResponsesTextFormat struct {
 }
 
 type ResponsesReasoning struct {
-	Effort string `json:"effort,omitempty"`
+	Effort    string `json:"effort,omitempty"`
+	MaxTokens *int64 `json:"max_tokens,omitempty"`
 }
 
 // ResponsesResponse represents the OpenAI Responses API response format.
@@ -439,16 +447,23 @@ type ResponsesStreamEvent struct {
 
 func ConvertToResponsesRequest(req *model.InternalLLMRequest) *ResponsesRequest {
 	result := &ResponsesRequest{
-		Model:             req.Model,
-		Temperature:       req.Temperature,
-		TopP:              req.TopP,
-		Stream:            req.Stream,
-		Store:             req.Store,
-		ServiceTier:       req.ServiceTier,
-		User:              req.User,
-		Metadata:          req.Metadata,
-		MaxOutputTokens:   req.MaxCompletionTokens,
-		ParallelToolCalls: req.ParallelToolCalls,
+		Model:                req.Model,
+		Temperature:          req.Temperature,
+		TopP:                 req.TopP,
+		Stream:               req.Stream,
+		Store:                req.Store,
+		ServiceTier:          req.ServiceTier,
+		User:                 req.User,
+		SafetyIdentifier:     req.SafetyIdentifier,
+		PromptCacheKey:       req.PromptCacheKey,
+		PromptCacheRetention: req.PromptCacheRetention,
+		PreviousResponseID:   req.PreviousResponseID,
+		Truncation:           req.Truncation,
+		Metadata:             req.Metadata,
+		MaxOutputTokens:      req.MaxCompletionTokens,
+		TopLogprobs:          req.TopLogprobs,
+		Include:              append([]string(nil), req.Include...),
+		ParallelToolCalls:    req.ParallelToolCalls,
 	}
 
 	// Convert instructions from system messages
@@ -479,7 +494,8 @@ func ConvertToResponsesRequest(req *model.InternalLLMRequest) *ResponsesRequest 
 	// Convert reasoning
 	if req.ReasoningEffort != "" || req.ReasoningBudget != nil {
 		result.Reasoning = &ResponsesReasoning{
-			Effort: req.ReasoningEffort,
+			Effort:    req.ReasoningEffort,
+			MaxTokens: req.ReasoningBudget,
 		}
 	}
 
@@ -515,7 +531,7 @@ func convertInstructionsFromMessages(msgs []model.Message) string {
 
 func convertInputFromMessages(msgs []model.Message, transformOptions model.TransformOptions) ResponsesInput {
 	if len(msgs) == 0 {
-		return ResponsesInput{}
+		return ResponsesInput{Items: []ResponsesItem{}}
 	}
 
 	wasArrayFormat := transformOptions.ArrayInputs != nil && *transformOptions.ArrayInputs
@@ -532,7 +548,7 @@ func convertInputFromMessages(msgs []model.Message, transformOptions model.Trans
 		return ResponsesInput{Text: nonSystemMsgs[0].Content.Content}
 	}
 
-	var items []ResponsesItem
+	items := make([]ResponsesItem, 0, len(msgs))
 	for _, msg := range msgs {
 		switch msg.Role {
 		case "system", "developer":

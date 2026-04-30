@@ -14,10 +14,6 @@ func init() {
 	router.NewGroupRouter("/api/v1/stats").
 		Use(middleware.Auth()).
 		AddRoute(
-			router.NewRoute("/today", http.MethodGet).
-				Handle(getStatsToday),
-		).
-		AddRoute(
 			router.NewRoute("/daily", http.MethodGet).
 				Handle(getStatsDaily),
 		).
@@ -37,10 +33,6 @@ func init() {
 			router.NewRoute("/group", http.MethodGet).
 				Handle(getStatsGroup),
 		)
-}
-
-func getStatsToday(c *gin.Context) {
-	resp.Success(c, op.StatsTodayGet())
 }
 
 func getStatsDaily(c *gin.Context) {
